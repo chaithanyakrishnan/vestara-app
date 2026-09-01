@@ -44,7 +44,19 @@ export function isDocusignConfigured(): boolean {
 export async function createSignatureRequests(planId: string) {
   const contacts = await prisma.planContact.findMany({ where: { planId } });
 
+  // Roles already on the roster. This filter is what makes re-submitting safe:
+  // `createMany` does NOT skip conflicting rows on its own, and Prisma's SQLite
+  // connector does not support `skipDuplicates` at all — so relying on the
+  // unique (planId, role) index to absorb them threw a constraint violation,
+  // surfacing to the user as a bare "internal server error" on a second submit.
+  const existing = await prisma.planSignature.findMany({
+    where: { planId },
+    select: { role: true },
+  });
+  const alreadyRequested = new Set(existing.map((s) => s.role));
+
   const rows = SIGNER_ROLES.flatMap((role) => {
+    if (alreadyRequested.has(role)) return [];
     const contact = contacts.find((c) => c.type === role);
     if (!contact?.email) return [];
     return [
@@ -58,8 +70,6 @@ export async function createSignatureRequests(planId: string) {
     ];
   });
 
-  // Re-submitting must not duplicate the roster; the unique (planId, role)
-  // makes createMany skip what is already there.
   if (rows.length > 0) {
     await prisma.planSignature.createMany({ data: rows });
   }

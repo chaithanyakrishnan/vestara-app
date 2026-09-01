@@ -49,25 +49,38 @@ export const MOCK_EXTRACTION = {
   },
   contributions: {
     pretaxDeferrals: true,
-    rothDeferrals: false,
+    // A plan permitting catch-up needs a Roth source: SECURE 2.0 Section 603 requires
+    // catch-up to be Roth for participants over the indexed wage threshold.
+    rothDeferrals: true,
     catchupPermitted: "yes",
     catchupMatched: "yes",
     safeHarborElected: true,
     safeHarborType: "basic",
     safeHarborPeriod: "payroll",
     safeHarborAppliesTo: "All eligible participants",
+    // The basic safe harbor formula: 100% on the first 3%, 50% on the next 2%.
+    safeHarborMatchTier1Pct: 100,
+    safeHarborMatchTier1UpToPct: 3,
+    safeHarborMatchTier2Pct: 50,
+    safeHarborMatchTier2UpToPct: 5,
     matchElected: false,
     nonelectiveElected: true,
     nonelectiveType: "disc",
     nonelectiveAllocation: "prorata",
     nonelectiveCondition: "lastday",
     forfeitureUse: "reduce_ne",
+    compensationDefinition: "w2",
+    compensationExclusions: [],
+    compensationPostSeverance: "include",
     _confidence: {
       pretaxDeferrals: 0.99, rothDeferrals: 0.95, catchupPermitted: 0.92,
       catchupMatched: 0.74, safeHarborElected: 0.97, safeHarborType: 0.93,
       safeHarborPeriod: 0.86, safeHarborAppliesTo: 0.64, matchElected: 0.9,
       nonelectiveElected: 0.89, nonelectiveType: 0.81,
       nonelectiveAllocation: 0.66, nonelectiveCondition: 0.72, forfeitureUse: 0.85,
+      safeHarborMatchTier1Pct: 0.88, safeHarborMatchTier1UpToPct: 0.88,
+      safeHarborMatchTier2Pct: 0.84, safeHarborMatchTier2UpToPct: 0.84,
+      compensationDefinition: 0.71, compensationPostSeverance: 0.55,
     },
   },
   eligibility: {
@@ -109,6 +122,8 @@ export const MOCK_EXTRACTION = {
     loansPermitted: true,
     loanMinAmount: 1000,
     loanMaxOutstanding: "1",
+    loanMaxBasis: "statutory",
+    loanGeneralMaxTermYears: 5,
     loanInterestRate: "prime1",
     loanPurpose: "any",
     loanHomeMaxTermYears: 10,
@@ -121,22 +136,33 @@ export const MOCK_EXTRACTION = {
     rolloversAccepted: true,
     rolloverSources: "all",
     planExpensePayer: "plan",
+    requiredBeginningAge: "73",
     _confidence: {
       loansPermitted: 0.98, loanMinAmount: 0.94, loanMaxOutstanding: 0.87,
       loanInterestRate: 0.9, loanPurpose: 0.73, loanHomeMaxTermYears: 0.68,
       loanRefinancing: 0.61, loanAcceleration: 0.57, loanPaymentsOnLeave: 0.52,
       inServiceAt59_5: 0.95, hardshipElected: 0.96, hardshipType: 0.89,
       rolloversAccepted: 0.93, rolloverSources: 0.7, planExpensePayer: 0.82,
+      loanMaxBasis: 0.79, loanGeneralMaxTermYears: 0.83, requiredBeginningAge: 0.6,
     },
   },
   trustees_funds: {
     trustees: [{ name: "Wesley Scott Wilson", type: "Individual" as const }],
     trusteeType: "disc",
-    // ERISA §404(c) requires at least three diversified core options.
+    // Three diversified options with materially different risk and return
+    // characteristics — the condition for CLAIMING Section 404(c), which the plan does.
     selectedFundTickers: ["VTSAX", "VTIAX", "VBTLX"],
     qdia: "target",
+    claims404c: true,
+    planAdministratorIsEmployer: true,
+    namedFiduciary: "4 Bears Casino & Lodge",
+    agentForServiceOfProcess: "",
+    fidelityBondCarrier: "",
+    fidelityBondAmount: 50000,
     _confidence: {
       trustees: 0.97, trusteeType: 0.65, selectedFundTickers: 0.46, qdia: 0.51,
+      claims404c: 0.5, planAdministratorIsEmployer: 0.62, namedFiduciary: 0.58,
+      fidelityBondAmount: 0.41,
     },
   },
   /**

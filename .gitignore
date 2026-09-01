@@ -8,3 +8,7 @@ apps/api/uploads
 *.db
 *.db-journal
 *.tsbuildinfo
+
+# Stale nested copy of the whole project, with its own .git. Untracked as of
+# the history rewrite; ignored so it cannot be committed by accident.
+vestara-app/

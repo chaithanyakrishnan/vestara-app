@@ -5,7 +5,7 @@ import { env } from "../../lib/env";
 import { ApiError } from "../../middleware/error.middleware";
 import { MOCK_EXTRACTION } from "./mockExtraction";
 import { schemaForStep, STEP_KEYS } from "@vestara/shared";
-import { bumpMaxStepReached } from "../plans/plans.service";
+import { bumpMaxStepReached, getPlanType } from "../plans/plans.service";
 import { normalizeSection, salvageSection } from "./extractionRecovery";
 
 /**
@@ -15,8 +15,39 @@ import { normalizeSection, salvageSection } from "./extractionRecovery";
  * "trustees" array instead of a "trustees_funds" section, so that step was
  * never populated on a real Claude call.
  */
-const EXTRACTION_PROMPT = `You are extracting 401(k) plan elections from an adoption
-agreement PDF. Return ONLY a JSON object with these exact top-level keys, and no
+/**
+ * Guidance that only makes sense for one plan type. Kept out of the shared body
+ * so a 403(b) is not read against 401(k) section headings and enums — the
+ * recovery layer would otherwise salvage partial nonsense rather than reporting
+ * that the document does not match the type the user selected.
+ */
+const PLAN_TYPE_GUIDANCE: Record<string, string> = {
+  "401k":
+    "This should be a 401(k) adoption agreement. Expect ADP/ACP safe harbor elections, " +
+    "a vesting schedule for employer money, and a trust.",
+  "403b":
+    "This should be a 403(b) plan document. There is NO trustee — look for a custodian " +
+    "(Section 403(b)(7) custodial account) or annuity issuer (Section 403(b)(1)). There is no ADP safe " +
+    "harbor. Look for the universal availability statement and its permitted exclusions " +
+    "(under 20 hours per week, students, employees eligible for another plan, non-resident " +
+    "aliens), the 15-year service catch-up, and whether the plan is ERISA or non-ERISA.",
+  "457b_gov":
+    "This should be a governmental 457(b) plan. The annual limit is a SINGLE ceiling covering " +
+    "employee deferrals and employer contributions together. Assets must be held in trust " +
+    "(Section 457(g)). Look for the final-three-years catch-up. There is no ADP testing or safe harbor.",
+  "457b_nongov":
+    "This should be a non-governmental (top-hat) 457(b) plan. It must be UNFUNDED — do not " +
+    "report a trust or trustee. There is no designated Roth account and no age-50 catch-up. " +
+    "Look for the select-group eligibility description, the substantial risk of forfeiture, " +
+    "and the unforeseeable emergency provision (not hardship).",
+  "401a":
+    "This should be a 401(a) employer-funded plan. There are NO elective deferrals — do not " +
+    "report pretaxDeferrals or rothDeferrals as true. Look for the fixed or discretionary " +
+    "employer contribution formula, and whether it is a money purchase or profit sharing plan.",
+};
+
+const EXTRACTION_PROMPT = `You are extracting retirement plan elections from an adoption
+agreement or plan document PDF. Return ONLY a JSON object with these exact top-level keys, and no
 prose before or after it. Use the exact enum values shown.
 
 READ THE WHOLE DOCUMENT. The first page is usually a near-blank cover sheet
@@ -67,6 +98,11 @@ FORMATS. Convert to these before returning:
   - planYearEnd: the month and day the plan year ends, e.g. "December 31".
   - phone numbers: "(XXX) XXX-XXXX".
 
+DOCUMENT TYPE CHECK. Report in "detectedPlanType" the plan type the document
+actually is, read from its own title and elections — not the type you were told
+to expect. If they disagree, still extract what you can and report both; the
+mismatch is surfaced to the user rather than silently pre-filling the wizard.
+
 planStatus: use "transfer" ONLY when the document shows assets moving from a
 named prior recordkeeper or provider. An "amendment and restatement" of an
 existing plan (Election 4(b) "Restated Plan", a Cycle 3 restatement) is NOT a
@@ -75,8 +111,18 @@ originalEffectiveDate if no separate initial effective date is given. Put the
 restatement date in restatedEffectiveDate, not in transferEffectiveDate.
 
 {
+  "detectedPlanType": "401k"|"403b"|"457b_gov"|"457b_nongov"|"401a",
   "identity": {
     "planType": "401k"|"403b"|"457b_gov"|"457b_nongov"|"401a",
+    // 403(b) only:
+    "erisaStatus": "erisa"|"non_erisa",
+    "organizationType": "501c3"|"public_school"|"church"|"hospital"|"other",
+    // 457(b) governmental only:
+    "governmentalEntityType": "state"|"county"|"municipal"|"school_district"|"other",
+    // 457(b) non-governmental only:
+    "topHatCertified": boolean,
+    // 401(a) only:
+    "planSubtype": "money_purchase"|"profit_sharing",
     "employerName": string, "employerEin": "XX-XXXXXXX", "employerAddress": string,
     "employerPhone": "(XXX) XXX-XXXX",
     "planName": string, "planNumber": "NNN", "planYearEnd": string, "trustName": string,
@@ -93,6 +139,20 @@ restatement date in restatedEffectiveDate, not in transferEffectiveDate.
     "catchupPermitted": "yes"|"no", "catchupMatched": "yes"|"no",
     "safeHarborElected": boolean, "safeHarborType": "basic"|"enhanced"|"ne"|"qaca",
     "safeHarborPeriod": "payroll"|"monthly"|"annual", "safeHarborAppliesTo": string,
+    // The safe harbor FORMULA, not just its name. Basic = 100% on the first 3%
+    // plus 50% on the next 2%; non-elective is a minimum of 3%.
+    "safeHarborMatchTier1Pct": number, "safeHarborMatchTier1UpToPct": number,
+    "safeHarborMatchTier2Pct": number, "safeHarborMatchTier2UpToPct": number,
+    "safeHarborNonelectivePct": number,
+    "superCatchupPermitted": "yes"|"no",       // ages 60-63
+    "service15CatchupPermitted": "yes"|"no",   // 403(b) only
+    "final3CatchupPermitted": "yes"|"no",      // 457(b) only
+    // Definition of compensation — usually its own numbered election.
+    "compensationDefinition": "w2"|"3401a"|"415_safe_harbor",
+    "compensationExclusions": ["bonus"|"overtime"|"commissions"|"fringe"|"severance"],
+    "compensationPostSeverance": "include"|"exclude",
+    "adpTestMethod": "current"|"prior",
+    "topHeavyMinimumBy": "employer"|"not_applicable",
     "matchElected": boolean, "matchType": "disc"|"fixed", "matchPct": number, "matchCapPct": number,
     "nonelectiveElected": boolean, "nonelectiveType": "disc"|"fixed", "nonelectivePct": number,
     "nonelectiveAllocation": "prorata"|"integrated"|"grouped",
@@ -106,6 +166,11 @@ restatement date in restatedEffectiveDate, not in transferEffectiveDate.
     "hoursOfServiceMethod": "actual"|"elapsed"|"split",
     "excludeUnion": boolean, "excludeNonResidentAliens": boolean,
     "excludePartTime": boolean, "excludeHce": boolean,
+    "ltptTrackingAcknowledged": boolean,
+    "deferralServiceRequirement": "none"|"3mo"|"6mo"|"1yr",
+    "uaExclusions": ["under_20_hours"|"students"|"other_plan_eligible"|"nonresident_aliens"],
+    "eligibleClassDescription": string,        // 457(b) non-governmental top-hat group
+    "eacaPermissibleWithdrawal": boolean,
     "autoEnrollElected": boolean, "autoEnrollType": "eaca"|"qaca"|"basic",
     "autoEnrollDefaultPct": number, "autoEnrollEscalation": "none"|"1pct_yr"|"2pct_yr",
     "autoEnrollEscalationCap": number
@@ -114,16 +179,28 @@ restatement date in restatedEffectiveDate, not in transferEffectiveDate.
     "scheduleType": "imm"|"3cliff"|"6graded"|"custom",
     // REQUIRED when scheduleType is "custom"; final row must be exactly 100
     "customSchedule": [{ "yearLabel": string, "pct": number }],
+    "matchVesting": "imm"|"3cliff"|"6graded",
+    "nonelectiveVesting": "imm"|"3cliff"|"6graded",
+    "safeHarborVesting": "imm"|"2cliff",
+    "substantialRiskOfForfeiture": "none"|"service"|"performance",  // 457(b) non-gov
     "normalRetirementAge": "60"|"62"|"65"|"sscra",
     "vestingOnDeathDisability": "none"|"death"|"disability"|"both"
   },
   "administration": {
     "loansPermitted": boolean, "loanMinAmount": number,   // amount REQUIRED if loans permitted
     "loanMaxOutstanding": "1"|"2"|"unlimited",
-    "loanInterestRate": "prime"|"prime1"|"prime2", "loanPurpose": "any"|"hardship_only",
+    "loanInterestRate": "prime"|"prime1"|"prime2", "loanPurpose": "any"|"principal_residence_only",
+    "loanMaxBasis": "statutory"|"lesser_of_50pct"|"custom",
+    "loanGeneralMaxTermYears": number,   // five years max under Section 72(p)(2)(B)
     "loanHomeMaxTermYears": number, "loanRefinancing": "allowed"|"not_allowed",
     "loanAcceleration": "on_termination"|"never", "loanPaymentsOnLeave": "suspend"|"continue",
     "inServiceAt59_5": boolean, "hardshipElected": boolean, "hardshipType": "safe"|"non",
+    "hardshipSelfCertification": boolean,
+    "unforeseeableEmergencyElected": boolean,   // 457(b) equivalent of hardship
+    "requiredBeginningAge": "73"|"75",
+    "emergencyExpenseWithdrawal": boolean, "domesticAbuseWithdrawal": boolean,
+    "birthAdoptionWithdrawal": boolean, "inPlanRothConversion": boolean,
+    "inServiceFromRollover": boolean,
     "rolloversAccepted": boolean, "rolloverSources": "all"|"qualified_only"|"none",
     "planExpensePayer": "plan"|"employer",
     "employerPaymentMethod": "ach"|"check"|"wire", "employerPaymentBankName": string,
@@ -132,8 +209,13 @@ restatement date in restatedEffectiveDate, not in transferEffectiveDate.
   "trustees_funds": {
     "trustees": [{ "name": string, "type": "Individual"|"Corporate" }],  // at least 1
     "trusteeType": "disc"|"dir",
-    "selectedFundTickers": [string],                                     // at least 3
-    "qdia": "target"|"balanced"|"managed"
+    "custodianName": string,             // 403(b): custodian or annuity issuer, NOT a trustee
+    "selectedFundTickers": [string],
+    "qdia": "target"|"balanced"|"managed",
+    "claims404c": boolean,
+    "planAdministratorIsEmployer": boolean, "planAdministratorName": string,
+    "namedFiduciary": string, "agentForServiceOfProcess": string,
+    "fidelityBondCarrier": string, "fidelityBondAmount": number
   },
   "trustees": [{ "name": string, "type": "Individual"|"Corporate" }]
 }
@@ -185,7 +267,7 @@ export async function runExtraction(documentId: string) {
   if (!document) throw new ApiError(404, "Document not found");
 
   const { parsed, modelName } = env.anthropicApiKey
-    ? await extractWithClaude(document.storageKey)
+    ? await extractWithClaude(document.storageKey, await getPlanType(document.planId))
     : { parsed: MOCK_EXTRACTION, modelName: "mock-fallback (no ANTHROPIC_API_KEY set)" };
 
   const extraction = await prisma.aiExtraction.create({
@@ -245,6 +327,12 @@ function meanConfidence(confidences: ConfidenceMap | null): number | null {
 }
 
 async function applyExtractionToPlan(planId: string, parsed: Record<string, unknown>, extractionId: string) {
+  // Sections are validated against the schema for the plan's OWN type. The
+  // extraction may name a type in its identity section (a fresh draft has none
+  // stored yet), so prefer that and fall back to what the plan already records.
+  const planType =
+    (parsed.identity as any)?.planType ?? (await getPlanType(planId));
+
   const writtenSections: string[] = [];
   const skippedSections: Array<{ section: string; reason: string }> = [];
   const partialSections: Array<{ section: string; missingFields: string[]; droppedFields: string[] }> = [];
@@ -258,7 +346,7 @@ async function applyExtractionToPlan(planId: string, parsed: Record<string, unkn
     // schema, so it has to come off before validation or every section fails.
     const { data: sectionData, confidences } = splitConfidence(rawSection);
 
-    const schema = schemaForStep(stepKey)!;
+    const schema = schemaForStep(stepKey, planType)!;
     // Reformat before validating (prose dates, un-hyphenated TINs, "1" for a
     // plan number), then validate field by field so one unreadable field can't
     // discard every field that WAS read. See extractionRecovery.ts.
@@ -327,7 +415,10 @@ async function applyExtractionToPlan(planId: string, parsed: Record<string, unkn
  * AiExtraction audit row and can be changed in exactly one place. */
 const MODEL = "claude-sonnet-4-6";
 
-async function extractWithClaude(storageKey: string): Promise<{ parsed: typeof MOCK_EXTRACTION; modelName: string }> {
+async function extractWithClaude(
+  storageKey: string,
+  planType?: string,
+): Promise<{ parsed: typeof MOCK_EXTRACTION; modelName: string }> {
   // Kept isolated behind this function on purpose: swapping providers, adding
   // a queue/worker, or adding retries only ever touches this one function.
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
@@ -348,7 +439,12 @@ async function extractWithClaude(storageKey: string): Promise<{ parsed: typeof M
         content: [
           // The document block must precede the instruction text.
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } },
-          { type: "text", text: EXTRACTION_PROMPT },
+          {
+            type: "text",
+            text: planType && PLAN_TYPE_GUIDANCE[planType]
+              ? `${EXTRACTION_PROMPT}\n\nEXPECTED PLAN TYPE: ${planType}. ${PLAN_TYPE_GUIDANCE[planType]}`
+              : EXTRACTION_PROMPT,
+          },
         ],
       },
     ],

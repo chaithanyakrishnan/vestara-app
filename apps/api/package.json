@@ -12,7 +12,9 @@
     "prisma:migrate": "node scripts/ensure-env.js && prisma migrate dev --name init",
     "prisma:seed": "node scripts/ensure-env.js && tsx prisma/seed.ts",
     "prisma:studio": "node scripts/ensure-env.js && prisma studio",
-    "verify:extraction": "tsx scripts/verify-mock-extraction.ts"
+    "verify:extraction": "tsx scripts/verify-mock-extraction.ts",
+    "verify:plan-types": "tsx scripts/check-plan-types.ts",
+    "verify:form-defaults": "tsx scripts/check-form-defaults.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",

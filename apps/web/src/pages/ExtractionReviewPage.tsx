@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { STEP_REGISTRY } from "@vestara/shared";
 import { usePlan } from "../hooks/usePlan";
+import { usePlanType } from "../hooks/usePlanTypeForm";
 import { api, ApiClientError } from "../lib/apiClient";
 import { fieldEntries, missingFieldLabels } from "../lib/reviewFormat";
 import { confidenceRgb, confidencePct, confidenceLabel, LOW_CONFIDENCE } from "../lib/confidence";
@@ -24,6 +25,7 @@ export function ExtractionReviewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: plan } = usePlan(planId);
+  const planType = usePlanType(plan);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +52,7 @@ export function ExtractionReviewPage() {
       // validated rather than discarding the section over one unreadable field.
       // Name what's still outstanding instead of letting the user discover it
       // when the wizard refuses to advance.
-      missing: stepData ? missingFieldLabels(step.key, stepData.data) : [],
+      missing: stepData ? missingFieldLabels(step.key, stepData.data, planType) : [],
       lowCount: scores.filter((c) => c < LOW_CONFIDENCE).length,
       mean: scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null,
     };

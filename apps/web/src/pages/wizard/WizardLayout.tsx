@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
 import { STEP_REGISTRY } from "@vestara/shared";
 import { usePlan } from "../../hooks/usePlan";
+import { PartiesBanner } from "../../components/PartiesBanner";
 
 /**
  * Rail + step routing shell. Each step is its own route
@@ -104,6 +105,9 @@ export function WizardLayout() {
         </div>
       </nav>
       <main style={{ flex: 1, padding: "40px 48px", overflowY: "auto" }}>
+        {/* Rendered here rather than in each step: the layout wraps all six
+            steps plus Review, so the parties appear once and stay put. */}
+        <PartiesBanner plan={plan} />
         <Outlet />
       </main>
     </div>

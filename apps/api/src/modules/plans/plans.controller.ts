@@ -34,6 +34,14 @@ export async function resetPlanDraftHandler(req: Request, res: Response) {
   res.json(plan);
 }
 
+const PlanStatusSchema = z.object({ planStatus: z.enum(["new", "transfer"]) });
+
+export async function setPlanStatusHandler(req: Request, res: Response) {
+  const { planStatus } = PlanStatusSchema.parse(req.body);
+  const result = await plansService.setPlanStatus(req.params.planId, planStatus);
+  res.json(result);
+}
+
 export async function deletePlanHandler(req: Request, res: Response) {
   await plansService.deletePlan(req.params.planId);
   res.status(204).end();

@@ -67,7 +67,7 @@ export function SuccessPage() {
     tpa?.org
       ? `Plan document drafted by ${tpa.org} and sent for signature`
       : "Plan document drafted by your recordkeeper and sent for signature",
-    "ERISA §412 fidelity bond confirmed — must be obtained before plan launch",
+    "ERISA Section 412 fidelity bond confirmed — must be obtained before plan launch",
     identity.payrollProvider
       ? `Payroll integration configured with ${identity.payrollProvider}`
       : "Payroll integration configured once a provider is nominated",

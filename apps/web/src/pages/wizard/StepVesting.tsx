@@ -1,21 +1,28 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate, useParams } from "react-router-dom";
-import { VestingStepSchema, type VestingStepInput } from "@vestara/shared";
+import { buildVestingSchema, type VestingStepInput,
+  normalizeStepForPlanType,
+} from "@vestara/shared";
 import { usePlan } from "../../hooks/usePlan";
+import { usePlanProfile, usePlanType, usePlanTypeResolver } from "../../hooks/usePlanTypeForm";
 import { useUpdateStep, isApiValidationError } from "../../hooks/useUpdateStep";
 import { FormField } from "../../components/FormField";
+import { SectionTip } from "../../components/InfoTip";
 import { FormErrorSummary } from "../../components/FormErrorSummary";
 import { OptionCard, OptionGrid } from "../../components/OptionCard";
 import { AiSectionBanner } from "../../components/AiSectionBanner";
 import { AiProvenanceProvider } from "../../components/AiProvenance";
 import { VEST_SCHEDULES, rowsForSchedule } from "../../data/vestingPresets";
-import { numericField } from "../../lib/forms";
+import { numericField, optionalEnumField } from "../../lib/forms";
 
 const defaults: VestingStepInput = {
   scheduleType: "6graded",
   customSchedule: rowsForSchedule("6graded"),
+  // Safe harbor money must vest immediately (QACA aside), so defaulting this
+  // to the plan's headline schedule guaranteed a server-side 422 for every
+  // safe harbor plan — the plan schedule is exactly what it may not use.
+  safeHarborVesting: "imm",
   normalRetirementAge: "65",
   vestingOnDeathDisability: "both",
 };
@@ -24,14 +31,17 @@ const SCHEDULES = [
   { value: "imm", title: "Immediate", formula: "Year 0 → 100%", desc: "100% vested from day one. No forfeiture risk." },
   { value: "3cliff", title: "3-Year Cliff", formula: "Year 0–2 → 0% · Year 3+ → 100%", desc: "Nothing vests until year 3, then everything. Simple to administer." },
   { value: "6graded", title: "6-Year Graded", formula: "0 / 0 / 20 / 40 / 60 / 80 / 100%", desc: "20% per year starting at year 2. The maximum schedule allowed." },
-  { value: "custom", title: "Custom Schedule", formula: "Edit the table below", desc: "Define your own graded ladder. Must meet Code §411(a)." },
+  { value: "custom", title: "Custom Schedule", formula: "Edit the table below", desc: "Define your own graded ladder. Must meet Code Section 411(a)." },
 ] as const;
 
 export function StepVesting() {
   const { planId } = useParams();
   const navigate = useNavigate();
   const { data: plan } = usePlan(planId);
+  const planType = usePlanType(plan);
+  const profile = usePlanProfile(plan);
   const updateStep = useUpdateStep(planId, "vesting");
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const {
     register,
@@ -43,7 +53,7 @@ export function StepVesting() {
     setError,
     formState: { errors },
   } = useForm<VestingStepInput>({
-    resolver: zodResolver(VestingStepSchema),
+    resolver: usePlanTypeResolver<VestingStepInput>(buildVestingSchema, planType),
     defaultValues: defaults,
   });
 
@@ -51,8 +61,13 @@ export function StepVesting() {
 
   useEffect(() => {
     const existing = plan?.stepData?.find((s: any) => s.stepKey === "vesting")?.data;
-    if (existing) reset({ ...defaults, ...existing });
-  }, [plan, reset]);
+    // Always normalize — including when there is no saved data yet. The
+    // `defaults` above are 401(k)-shaped, and carrying (say) catchupPermitted
+    // "yes" into a 401(a) leaves an invalid value in a field that is no longer
+    // rendered, which shows up to the user as a Continue button that does
+    // nothing at all.
+    reset(normalizeStepForPlanType("vesting", { ...defaults, ...(existing ?? {}) }, planType) as any);
+  }, [plan, planType, reset]);
 
   const scheduleType = watch("scheduleType");
   const isCustom = scheduleType === "custom";
@@ -67,6 +82,7 @@ export function StepVesting() {
   }
 
   async function onSubmit(data: VestingStepInput) {
+    setSubmitError(null);
     try {
       await updateStep.mutateAsync(data);
       navigate(`/onboarding/${planId}/step/administration`);
@@ -74,6 +90,13 @@ export function StepVesting() {
       if (isApiValidationError(err)) {
         err.issues!.forEach((issue) =>
           setError(issue.path as keyof VestingStepInput, { message: issue.message }),
+        );
+      } else {
+        // A 422 from a cross-step business rule (see irsVestingFloor.ts)
+        // carries a message but no field issues. Without this branch the
+        // request failed and nothing at all appeared on screen.
+        setSubmitError(
+          err instanceof Error && err.message ? err.message : "Could not save this step. Please try again.",
         );
       }
     }
@@ -94,7 +117,10 @@ export function StepVesting() {
 
       <AiSectionBanner plan={plan} stepKey="vesting" />
 
-      <div className="section-head">Schedule Type</div>
+      <div className="section-head">
+        Schedule Type
+        <SectionTip heading="Schedule Type" />
+      </div>
       <OptionGrid cols={2}>
         {SCHEDULES.map((s) => (
           <OptionCard
@@ -157,13 +183,92 @@ export function StepVesting() {
               <circle cx="12" cy="12" r="10" />
               <path d="M12 8v4M12 16h.01" />
             </svg>
-            Must satisfy Code §411(a)(2)(B): each year vests at least as much as the prior year, and the
+            Must satisfy Code Section 411(a)(2)(B): each year vests at least as much as the prior year, and the
             schedule reaches 100% by year 6. Checked again on save.
           </div>
         </div>
       )}
 
-      <div className="section-head">Normal Retirement Age</div>
+      {/* ── Per-source schedules ────────────────────────────────
+          Vesting is a property of each MONEY SOURCE, not of the plan. Several
+          can never carry a schedule: elective deferrals, safe harbor
+          non-elective and basic/enhanced match, QNECs, QMACs and rollovers.
+          Modelling one schedule plan-wide let a user elect safe harbor
+          non-elective and a six-year graded schedule together. */}
+      {profile.erisaVestingFloors && (
+        <>
+          <div className="section-head">
+        Vesting by Contribution Source
+        <SectionTip heading="Vesting by Contribution Source" />
+      </div>
+          <div className="inline-alert" style={{ marginBottom: 14 }}>
+            Elective deferrals, rollovers, QNECs and QMACs are always 100% vested and cannot carry a
+            schedule. Safe harbor non-elective and basic or enhanced matching contributions must also
+            vest immediately; only QACA safe harbor money may use a two-year cliff.
+          </div>
+          <div className="form-grid">
+            <FormField name="matchVesting" label="Matching Contributions" error={errors.matchVesting}
+              hint="Leave blank to use the plan schedule above.">
+              <select {...register("matchVesting", optionalEnumField)}>
+                <option value="">Same as plan schedule</option>
+                <option value="imm">Immediate — 100% vested</option>
+                <option value="3cliff">3-year cliff</option>
+                <option value="6graded">6-year graded</option>
+              </select>
+            </FormField>
+            <FormField name="nonelectiveVesting" label="Non-Elective / Profit Sharing"
+              error={errors.nonelectiveVesting} hint="Leave blank to use the plan schedule above.">
+              <select {...register("nonelectiveVesting", optionalEnumField)}>
+                <option value="">Same as plan schedule</option>
+                <option value="imm">Immediate — 100% vested</option>
+                <option value="3cliff">3-year cliff</option>
+                <option value="6graded">6-year graded</option>
+              </select>
+            </FormField>
+            <FormField name="safeHarborVesting" label="Safe Harbor Contributions"
+              error={errors.safeHarborVesting}
+              hint="Must be immediate, except QACA money which may use a two-year cliff.">
+              <select {...register("safeHarborVesting", optionalEnumField)}>
+                <option value="">Same as plan schedule</option>
+                <option value="imm">Immediate — 100% vested</option>
+                <option value="2cliff">2-year cliff (QACA only)</option>
+              </select>
+            </FormField>
+          </div>
+        </>
+      )}
+
+      {/* Governmental and top-hat plans are outside Section 411 entirely — offering
+          the graded/cliff floors there would be answering a question the Code
+          does not ask of them. */}
+      {!profile.erisaVestingFloors && (
+        <div className="inline-alert" style={{ marginTop: 18, marginBottom: 4 }}>
+          The Section 411 minimum vesting schedules do not apply to a {profile.label} plan.
+          {profile.topHatOnly
+            ? " Deferred amounts are instead subject to a substantial risk of forfeiture, if any."
+            : " Set the schedule the plan document actually adopts."}
+        </div>
+      )}
+
+      {profile.topHatOnly && (
+        <div className="form-grid" style={{ marginTop: 12 }}>
+          <FormField name="substantialRiskOfForfeiture" label="Substantial Risk of Forfeiture" required
+            colSpan2 error={errors.substantialRiskOfForfeiture}
+            hint="Amounts subject to a substantial risk of forfeiture are not yet taxable to the participant.">
+            <select {...register("substantialRiskOfForfeiture", optionalEnumField)}>
+              <option value="">Select…</option>
+              <option value="none">None — amounts are fully vested when deferred</option>
+              <option value="service">Continued service through a stated date</option>
+              <option value="performance">Attainment of stated performance conditions</option>
+            </select>
+          </FormField>
+        </div>
+      )}
+
+      <div className="section-head">
+        Normal Retirement Age
+        <SectionTip heading="Normal Retirement Age" />
+      </div>
       <div className="form-grid">
         <FormField name="normalRetirementAge"
           label="NRA"
@@ -188,7 +293,7 @@ export function StepVesting() {
         </FormField>
       </div>
 
-      <FormErrorSummary errors={errors} />
+      <FormErrorSummary errors={errors} submitError={submitError} />
 
       <div className="panel-actions">
         <button type="button" className="btn-back" onClick={() => navigate(`/onboarding/${planId}/step/eligibility`)}>

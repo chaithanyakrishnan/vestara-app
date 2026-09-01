@@ -5,7 +5,11 @@
    product from the wizard it links into. */
 
 .dash {
-  max-width: 1180px;
+  /* Wider than the wizard panels on purpose: this is a data table, and the
+     previous 1180px cap was NARROWER than the table's own 1180px min-width once
+     the 24px side padding was taken off — so the table scrolled horizontally at
+     every viewport size, including a wide desktop. */
+  max-width: 1440px;
   margin: 0 auto;
   padding: 36px 24px 64px;
 }
@@ -132,19 +136,33 @@
 .dash-filters .field {
   gap: 0;
 }
-/* The search box carries its own magnifier, so the text needs to clear it. */
+/* The search box carries its own magnifier, at the trailing edge so it never
+   sits over the placeholder.
+
+   The padding rule is deliberately qualified with `.dash-filters`: @import
+   hoists this file ABOVE the rest of global.css, so the plain `.field input`
+   shorthand there (`padding: 11px 14px`) loads later and, at equal specificity,
+   silently won — which is what put the glyph on top of the text. */
 .dash-search {
   position: relative;
 }
 .dash-search svg {
   position: absolute;
-  left: 13px;
+  right: 14px;
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
+  opacity: 0.75;
 }
-.dash-search input {
-  padding-left: 36px;
+.dash-filters .dash-search input {
+  padding-right: 38px;
+}
+/* Safari renders its own clear affordance for type="search", which would
+   collide with the glyph. */
+.dash-search input::-webkit-search-decoration,
+.dash-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 /* ---- Table ----------------------------------------------------------- */
@@ -153,14 +171,18 @@
   background: var(--navy3);
   border: 1px solid rgba(20, 36, 28, 0.08);
   border-radius: 12px;
-  /* Ten columns don't fit a laptop viewport once sponsor and advisor names get
-     long — scroll the table, never the page body. */
+  /* Kept for genuinely narrow viewports: below ~1150px the columns stop fitting
+     and the TABLE scrolls, never the page body. On a normal desktop the table
+     now fits inside .dash and this never engages. */
   overflow-x: auto;
 }
 .plan-table {
   width: 100%;
-  min-width: 1180px;
+  /* Comfortably inside .dash's 1392px content box, so no scrollbar appears
+     until the viewport itself is narrower than the columns need. */
+  min-width: 1120px;
   border-collapse: collapse;
+  table-layout: auto;
 }
 .plan-table th {
   text-align: left;
@@ -169,13 +191,13 @@
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--muted);
-  padding: 13px 16px;
+  padding: 13px 14px;
   background: rgba(20, 36, 28, 0.03);
   border-bottom: 1px solid rgba(20, 36, 28, 0.08);
   white-space: nowrap;
 }
 .plan-table td {
-  padding: 14px 16px;
+  padding: 14px 14px;
   font-size: 13px;
   vertical-align: middle;
   border-bottom: 1px solid rgba(20, 36, 28, 0.05);

@@ -1,4 +1,4 @@
-import { STEP_REGISTRY, type StepKey } from "@vestara/shared";
+import { schemaForStep, STEP_REGISTRY, fieldLabel, stepLabel, type StepKey } from "@vestara/shared";
 import { fundByTicker } from "../data/funds";
 
 /**
@@ -283,50 +283,6 @@ export function buildReviewSection(stepKey: StepKey, data: unknown): Row[] {
  * renders one row per *field* (so each can carry its own confidence score),
  * unlike the sign-off review above which composes fields into sentences.
  */
-const FIELD_LABELS: Record<string, string> = {
-  planType: "Plan Type", employerEin: "Employer EIN", employerName: "Legal Employer Name",
-  employerAddress: "Employer Address", employerPhone: "Employer Phone", planName: "Plan Name", planNumber: "Plan Number",
-  planYearEnd: "Plan Year End", trustName: "Trust Name", planStatus: "Plan Status",
-  originalEffectiveDate: "Original Effective Date",
-  restatedEffectiveDate: "Restated Effective Date", transferEffectiveDate: "Transfer Effective Date",
-  previousRecordkeeper: "Previous Recordkeeper", previousRecordkeeperContact: "Prior Contact Name",
-  previousRecordkeeperPhone: "Prior Contact Phone", previousRecordkeeperEmail: "Prior Contact Email",
-  approxAssetsTransferring: "Approx. Assets Transferring", payrollProvider: "Payroll Provider",
-
-  pretaxDeferrals: "Pre-Tax Deferrals", rothDeferrals: "Roth Deferrals",
-  catchupPermitted: "Catch-Up Deferrals", catchupMatched: "Catch-Up Matched",
-  safeHarborElected: "Safe Harbor Elected", safeHarborType: "Safe Harbor Formula",
-  safeHarborPeriod: "Safe Harbor Period", safeHarborAppliesTo: "Safe Harbor Applies To",
-  matchElected: "Employer Match Elected", matchType: "Match Type", matchPct: "Match Rate",
-  matchCapPct: "Match Cap", nonelectiveElected: "Nonelective Elected",
-  nonelectiveType: "Nonelective Type", nonelectivePct: "Nonelective Percentage",
-  nonelectiveAllocation: "Allocation Method", nonelectiveCondition: "Allocation Condition",
-  forfeitureUse: "Forfeiture Use",
-
-  minimumAge: "Minimum Age", serviceRequirement: "Service Requirement", entryDates: "Entry Dates",
-  hoursOfServiceMethod: "Hours of Service Method", excludeUnion: "Exclude Union Employees",
-  excludeNonResidentAliens: "Exclude Non-Resident Aliens", excludePartTime: "Exclude Part-Time",
-  excludeHce: "Exclude HCEs", autoEnrollElected: "Automatic Enrollment",
-  autoEnrollType: "Auto-Enroll Type", autoEnrollDefaultPct: "Default Deferral %",
-  autoEnrollEscalation: "Annual Escalation", autoEnrollEscalationCap: "Escalation Cap",
-
-  scheduleType: "Vesting Schedule", customSchedule: "Ladder by Year",
-  normalRetirementAge: "Normal Retirement Age", vestingOnDeathDisability: "Vesting on Death/Disability",
-
-  loansPermitted: "Loans Permitted", loanMinAmount: "Minimum Loan Amount",
-  loanMaxOutstanding: "Max Loans Outstanding", loanInterestRate: "Loan Interest Rate",
-  loanPurpose: "Loan Purpose", loanHomeMaxTermYears: "Home Loan Max Term",
-  loanRefinancing: "Refinancing", loanAcceleration: "Loan Acceleration",
-  loanPaymentsOnLeave: "Payments on Leave", inServiceAt59_5: "Age 59½ In-Service Withdrawals",
-  hardshipElected: "Hardship Distributions", hardshipType: "Hardship Type",
-  rolloversAccepted: "Rollovers Accepted", rolloverSources: "Rollover Sources",
-  planExpensePayer: "Plan Expenses Paid By", employerPaymentMethod: "Employer Payment Method",
-  employerPaymentBankName: "Bank", employerPaymentAccountType: "Account Type",
-  employerPaymentRoutingNumber: "Routing Number", employerPaymentAccountNumber: "Account Number",
-
-  trustees: "Trustees", trusteeType: "Trustee Type",
-  selectedFundTickers: "Core Funds", qdia: "QDIA",
-};
 
 /** Fields never rendered in full — bank credentials. */
 const MASKED_FIELDS = new Set(["employerPaymentRoutingNumber", "employerPaymentAccountNumber"]);
@@ -359,7 +315,7 @@ export function fieldEntries(data: unknown): FieldEntry[] {
     .filter(([field]) => field !== "_confidence")
     .map(([field, value]) => ({
       field,
-      label: FIELD_LABELS[field] ?? field,
+      label: fieldLabel(field),
       value: displayValue(field, value),
     }));
 }
@@ -395,15 +351,23 @@ export function contactRows(contacts: any[] | undefined): Row[] {
  * the review screen names what is still outstanding, so this recomputes it from
  * the same registry schema the API and the wizard forms use.
  */
-/** Human label for a schema field name, falling back to the raw name. */
-export function fieldLabel(field: string): string {
-  return FIELD_LABELS[field] ?? field;
-}
+// fieldLabel now lives in @vestara/shared so the API's own user-facing messages
+// use the same names as the screen. Re-exported here for existing callers.
+export { fieldLabel, stepLabel };
 
-export function missingFieldLabels(stepKey: StepKey, data: unknown): string[] {
+/**
+ * `planType` matters: a 401(a) checked against the 401(k) schema would be
+ * reported as missing elective deferrals it can never have, and a 403(b) as
+ * missing a trustee it must not appoint. Callers pass the plan's own type.
+ */
+export function missingFieldLabels(
+  stepKey: StepKey,
+  data: unknown,
+  planType?: string,
+): string[] {
   const step = STEP_REGISTRY.find((s) => s.key === stepKey);
   if (!step || !data) return [];
-  const result = step.schema.safeParse(data);
+  const result = schemaForStep(stepKey, planType)!.safeParse(data);
   if (result.success) return [];
   const fields = new Set(
     result.error.issues.map((issue) => String(issue.path[0] ?? "")).filter(Boolean),

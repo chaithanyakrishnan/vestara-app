@@ -11,12 +11,33 @@ import { fieldLabel } from "../lib/reviewFormat";
  * explanation — the failure mode reported on the Administration step. This
  * summary makes any such error visible wherever it came from.
  */
-export function FormErrorSummary({ errors }: { errors: FieldErrors }) {
+export function FormErrorSummary({
+  errors,
+  submitError,
+}: {
+  errors: FieldErrors;
+  /**
+   * A server rejection that is NOT a field-level ZodError — the 422s thrown by
+   * the cross-step business rules in irsVestingFloor.ts, for instance. These
+   * carry a message but no `issues`, so the step forms' `setError` branch
+   * ignored them entirely: the request failed, nothing rendered, and Continue
+   * looked broken. That was the reported "Vesting continue button does nothing".
+   */
+  submitError?: string | null;
+}) {
   const rows = Object.entries(errors)
     .map(([field, error]) => [field, (error as { message?: string })?.message] as const)
     .filter((row): row is readonly [string, string] => !!row[1]);
 
-  if (rows.length === 0) return null;
+  if (rows.length === 0 && !submitError) return null;
+
+  if (rows.length === 0 && submitError) {
+    return (
+      <div className="inline-alert error" style={{ marginTop: 20 }}>
+        <span>{submitError}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="inline-alert error" style={{ marginTop: 20 }}>
@@ -30,6 +51,7 @@ export function FormErrorSummary({ errors }: { errors: FieldErrors }) {
             </li>
           ))}
         </ul>
+        {submitError && <div style={{ marginTop: 8 }}>{submitError}</div>}
       </span>
     </div>
   );

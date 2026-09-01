@@ -48,7 +48,7 @@ export function ContactGatePage() {
 
   async function onSubmit(data: ContactGateInput) {
     const plan = await createPlan.mutateAsync(data);
-    navigate(`/onboarding/${plan.id}/intake`);
+    navigate(`/onboarding/${plan.id}/plan-status`);
   }
 
   return (
@@ -62,11 +62,24 @@ export function ContactGatePage() {
         ← Back to dashboard
       </button>
 
-      <div className="panel-eyebrow">BEFORE YOU START</div>
-      <div className="panel-title">Who's on this plan?</div>
+      <div className="flow-head">
+        <span className="flow-step-num">1</span>
+        <h1 className="flow-title">Advisor and Sponsor Information</h1>
+      </div>
       <div className="panel-desc">
-        We'll capture the advisor, plan sponsor and — where one is engaged — the TPA contact once, up
-        front, so the rest of onboarding stays focused on plan design.
+        Identify the Financial Advisor and Plan Sponsor contact. Both receive the plan document for
+        signature. Optionally capture a Third Party Administrator (TPA) if one is engaged.
+      </div>
+
+      {/* Why a typed-and-clicked signature is sufficient here. Sponsors ask,
+          and the answer is a legal one rather than a product one. */}
+      <div className="compliance-note">
+        <span className="compliance-note-icon" aria-hidden="true">i</span>
+        <p>
+          <strong>E-signature compliance:</strong> Electronic signatures are legally valid under the
+          ESIGN Act (2000) and UETA. E-signature audit trails satisfy DOL and IRS documentation
+          requirements under ERISA Section 107.
+        </p>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)}>

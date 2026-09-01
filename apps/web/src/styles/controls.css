@@ -1023,3 +1023,383 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── IRS limits strip + plan-type description ─────────────────────────────
+   Sits above and below the plan-type selector on step 1. Uses the prototype's
+   teal/cream tokens so it reads as part of the same system. */
+
+.limits-strip {
+  border: 1px solid #d7e2da;
+  border-left: 3px solid var(--teal);
+  background: #f4f8f5;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 0 0 18px;
+}
+
+.limits-strip-year {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--teal);
+  margin-bottom: 8px;
+}
+
+.limits-strip-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+}
+
+.limits-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.limits-chip-label { color: var(--muted); }
+
+.limits-chip-value {
+  font-weight: 700;
+  color: var(--cream);
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-type-panel {
+  border: 1px solid #d7e2da;
+  border-left: 3px solid var(--teal2);
+  background: #fbfdfb;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: -4px 0 20px;
+}
+
+.plan-type-panel-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cream);
+  margin-bottom: 6px;
+}
+
+.plan-type-panel-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--cream2);
+}
+
+.plan-type-panel-notes {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.plan-type-panel-notes li {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.plan-type-panel-notes li:last-child { margin-bottom: 0; }
+
+/* Non-governmental 457(b) carries the most consequential warnings — the
+   creditor exposure is the single thing a sponsor most needs to have read. */
+.plan-type-457b_nongov {
+  border-left-color: var(--amber);
+  background: #fdfaf3;
+}
+
+/* ── Checkbox rows / grids ────────────────────────────────────────────────
+   Used where a multi-select is a genuine list of statutory categories
+   (compensation exclusions, 403(b) universal-availability exclusions) rather
+   than a set of choices worth explaining with OptionCards. */
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px 18px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--cream2);
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+/* These have to actively UNDO `.field input` from global.css. A checkbox placed
+   inside a FormField inherits that rule's `appearance: none`, full-width sizing
+   and text-input padding, which erases the tick entirely and leaves a blank grey
+   rectangle — reported as "should be check-boxes". Resetting appearance here
+   restores the native control wherever the checkbox sits. */
+.checkbox-row input[type="checkbox"] {
+  appearance: auto;
+  -webkit-appearance: checkbox;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 2px 0 0;
+  flex: none;
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+
+.checkbox-row:hover { color: var(--cream); }
+
+.checkbox-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+/* ── Parties banner ───────────────────────────────────────────────────────
+   Who the plan belongs to, carried across every wizard step. Tinted per role
+   so advisor and sponsor are distinguishable at a glance rather than read. */
+
+.parties-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  background: #f3f5fb;
+  border: 1px solid #dbe1f2;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 22px;
+}
+
+.parties-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.party-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.party-role { font-weight: 700; }
+
+.party-advisor {
+  background: #f0ebfd;
+  border-color: #d9ccf7;
+  color: #4c2f9e;
+}
+
+.party-sponsor {
+  background: #e2f7f7;
+  border-color: #b9e8e6;
+  color: #0e5f5c;
+}
+
+.party-tpa {
+  background: #fdf3e3;
+  border-color: #f2ddb8;
+  color: #7a5a12;
+}
+
+.parties-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--cream2);
+  flex: 1 1 260px;
+}
+
+@media (max-width: 720px) {
+  .parties-banner { flex-direction: column; align-items: flex-start; }
+}
+
+/* ── Numbered pre-wizard flow heading ─────────────────────────────────────
+   The three screens ahead of the wizard (parties, new-vs-transfer, intake
+   method) are a sequence, so they are numbered — the badge encodes position,
+   not decoration. */
+
+.flow-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.flow-step-num {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #e8edfb;
+  color: #2f4bb8;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.flow-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--cream);
+}
+
+/* ── Info tooltips on plan-election labels ────────────────────────────────
+   The bubble is absolutely positioned inside a relative wrapper, so it never
+   affects the label's own line height or the form grid's row alignment. */
+
+.infotip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 5px;
+}
+
+.infotip-trigger {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid rgba(20, 36, 28, 0.22);
+  background: rgba(20, 36, 28, 0.04);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: help;
+  padding: 0;
+  transition: background var(--trans), color var(--trans), border-color var(--trans);
+}
+
+.infotip-trigger:hover,
+.infotip-trigger[aria-expanded="true"] {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+
+.infotip-trigger:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.infotip-bubble {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 320px;
+  background: var(--cream);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 9px 12px;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(20, 36, 28, 0.24);
+  z-index: 40;
+  white-space: normal;
+  pointer-events: none;
+}
+
+/* The pointer. */
+.infotip-bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--cream);
+}
+
+/* Near the left edge of a grid column the centred bubble would overflow the
+   panel, so the first column anchors it to the left instead. */
+.form-grid > .field:nth-child(3n + 1) .infotip-bubble {
+  left: 0;
+  transform: none;
+}
+.form-grid > .field:nth-child(3n + 1) .infotip-bubble::after {
+  left: 14px;
+  transform: none;
+}
+
+@media (max-width: 640px) {
+  .infotip-bubble { max-width: 240px; }
+}
+
+/* ── Compliance note ──────────────────────────────────────────────────────
+   A standing explanation of the legal basis for something the screen asks
+   for, distinct from .inline-alert, which reports the outcome of an action. */
+
+.compliance-note {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  background: #f2f0fd;
+  border: 1px solid #ddd6f7;
+  border-radius: 10px;
+  padding: 13px 16px;
+  margin: 18px 0 26px;
+}
+
+.compliance-note-icon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #4c2f9e;
+  color: #fff;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+.compliance-note p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #3a2f5c;
+}
+
+.compliance-note strong { color: #2b2049; font-weight: 700; }
+
+/* A section heading sits at the panel's left edge, so a centred bubble would
+   run off it. */
+.section-head .infotip-bubble {
+  left: 0;
+  transform: none;
+}
+.section-head .infotip-bubble::after {
+  left: 14px;
+  transform: none;
+}

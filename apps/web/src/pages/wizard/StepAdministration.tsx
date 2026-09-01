@@ -1,11 +1,14 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate, useParams } from "react-router-dom";
-import { AdministrationStepSchema, type AdministrationStepInput } from "@vestara/shared";
+import { buildAdministrationSchema, type AdministrationStepInput,
+  normalizeStepForPlanType,
+} from "@vestara/shared";
 import { usePlan } from "../../hooks/usePlan";
+import { usePlanProfile, usePlanType, usePlanTypeResolver } from "../../hooks/usePlanTypeForm";
 import { useUpdateStep, isApiValidationError } from "../../hooks/useUpdateStep";
 import { FormField } from "../../components/FormField";
+import { SectionTip } from "../../components/InfoTip";
 import { FormErrorSummary } from "../../components/FormErrorSummary";
 import { OptionCard, OptionGrid } from "../../components/OptionCard";
 import { ToggleRow, RevealSection } from "../../components/ToggleRow";
@@ -16,6 +19,8 @@ import { BANKS } from "../../data/datalists";
 import { makeFieldSetter, numericField, optionalEnumField } from "../../lib/forms";
 
 const defaults: AdministrationStepInput = {
+  // Age 73 is the current required beginning age; 75 applies from 2033.
+  requiredBeginningAge: "73",
   loansPermitted: false,
   inServiceAt59_5: false,
   hardshipElected: false,
@@ -28,7 +33,10 @@ export function StepAdministration() {
   const { planId } = useParams();
   const navigate = useNavigate();
   const { data: plan } = usePlan(planId);
+  const planType = usePlanType(plan);
+  const profile = usePlanProfile(plan);
   const updateStep = useUpdateStep(planId, "administration");
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const {
     register,
@@ -39,17 +47,23 @@ export function StepAdministration() {
     setError,
     formState: { errors },
   } = useForm<AdministrationStepInput>({
-    resolver: zodResolver(AdministrationStepSchema),
+    resolver: usePlanTypeResolver<AdministrationStepInput>(buildAdministrationSchema, planType),
     defaultValues: defaults,
   });
 
   useEffect(() => {
     const existing = plan?.stepData?.find((s: any) => s.stepKey === "administration")?.data;
-    if (existing) reset({ ...defaults, ...existing });
-  }, [plan, reset]);
+    // Always normalize — including when there is no saved data yet. The
+    // `defaults` above are 401(k)-shaped, and carrying (say) catchupPermitted
+    // "yes" into a 401(a) leaves an invalid value in a field that is no longer
+    // rendered, which shows up to the user as a Continue button that does
+    // nothing at all.
+    reset(normalizeStepForPlanType("administration", { ...defaults, ...(existing ?? {}) }, planType) as any);
+  }, [plan, planType, reset]);
 
   const loansPermitted = watch("loansPermitted");
   const inService = watch("inServiceAt59_5");
+  const unforeseeableEmergencyElected = watch("unforeseeableEmergencyElected");
   const hardshipElected = watch("hardshipElected");
   const hardshipType = watch("hardshipType");
   const rolloversAccepted = watch("rolloversAccepted");
@@ -59,6 +73,7 @@ export function StepAdministration() {
   const pick = makeFieldSetter<AdministrationStepInput>(setValue);
 
   async function onSubmit(data: AdministrationStepInput) {
+    setSubmitError(null);
     try {
       await updateStep.mutateAsync(data);
       navigate(`/onboarding/${planId}/step/trustees_funds`);
@@ -66,6 +81,13 @@ export function StepAdministration() {
       if (isApiValidationError(err)) {
         err.issues!.forEach((issue) =>
           setError(issue.path as keyof AdministrationStepInput, { message: issue.message }),
+        );
+      } else {
+        // A 422 from a cross-step business rule (see irsVestingFloor.ts)
+        // carries a message but no field issues. Without this branch the
+        // request failed and nothing at all appeared on screen.
+        setSubmitError(
+          err instanceof Error && err.message ? err.message : "Could not save this step. Please try again.",
         );
       }
     }
@@ -83,8 +105,21 @@ export function StepAdministration() {
 
       <AiSectionBanner plan={plan} stepKey="administration" />
 
-      {/* ── Loans ─────────────────────────────────────────── */}
-      <div className="section-head">Participant Loans</div>
+      {/* ── Loans ───────────────────────────────────────────────
+          A non-governmental 457(b) cannot offer loans: deferred amounts are
+          the employer's general assets, so there is nothing to lend against. */}
+      {!profile.loansAvailable && (
+        <div className="inline-alert" style={{ marginBottom: 16 }}>
+          Participant loans are not available in a {profile.label} plan — deferred amounts remain
+          the employer's general assets until distributed.
+        </div>
+      )}
+      {profile.loansAvailable && (
+      <>
+      <div className="section-head">
+        Participant Loans
+        <SectionTip heading="Participant Loans" />
+      </div>
       <ToggleRow
         checked={!!loansPermitted}
         onChange={(next) => {
@@ -127,6 +162,21 @@ export function StepAdministration() {
                 placeholder="1000"
               />
             </FormField>
+            <FormField name="loanMaxBasis" label="Maximum Loan" required error={errors.loanMaxBasis}
+              hint="Section 72(p)(2)(A) caps a loan at the lesser of $50,000 or half the vested balance.">
+              <select {...register("loanMaxBasis", optionalEnumField)}>
+                <option value="">Select…</option>
+                <option value="statutory">Statutory maximum — lesser of $50,000 or 50% vested</option>
+                <option value="lesser_of_50pct">50% of vested balance, no dollar cap increase</option>
+                <option value="custom">Lower plan-specific limit</option>
+              </select>
+            </FormField>
+            <FormField name="loanGeneralMaxTermYears" label="General-Purpose Loan Term" required
+              error={errors.loanGeneralMaxTermYears}
+              hint="Section 72(p)(2)(B): five years maximum, except a principal residence loan.">
+              <AffixInput suffix="yrs" registration={register("loanGeneralMaxTermYears", numericField)}
+                type="number" step="1" min={1} max={5} placeholder="5" />
+            </FormField>
             <FormField name="loanMaxOutstanding" label="Max Loans Outstanding" error={errors.loanMaxOutstanding}>
               <select {...register("loanMaxOutstanding", optionalEnumField)}>
                 <option value="1">1 loan at a time</option>
@@ -144,7 +194,7 @@ export function StepAdministration() {
             <FormField name="loanPurpose" label="Loan Purpose" error={errors.loanPurpose}>
               <select {...register("loanPurpose", optionalEnumField)}>
                 <option value="any">Any reasonable purpose</option>
-                <option value="hardship_only">Restricted purposes only</option>
+                <option value="principal_residence_only">Restricted purposes only</option>
               </select>
             </FormField>
             <FormField name="loanHomeMaxTermYears" label="Home Loan Max Term" error={errors.loanHomeMaxTermYears}>
@@ -180,15 +230,46 @@ export function StepAdministration() {
         </div>
       </RevealSection>
 
-      {/* ── In-service distributions ──────────────────────── */}
-      <div className="section-head">In-Service Distributions</div>
-      <ToggleRow
-        checked={!!inService}
-        onChange={(next) => pick("inServiceAt59_5", next)}
-        label="Age 59½ In-Service Withdrawals"
-        sub="Participants aged 59½ or older may withdraw from any account while still employed."
-      />
+      </>
+      )}
 
+      {/* ── In-service distributions ──────────────────────── */}
+      <div className="section-head">
+        In-Service Distributions
+        <SectionTip heading="In-Service Distributions" />
+      </div>
+
+      {/* Section 457(b) non-governmental: distributions are restricted to separation,
+          age 70½, unforeseeable emergency, or death/disability. There is no
+          age-59½ in-service event to offer. */}
+      {profile.inServiceAt59_5 ? (
+        <ToggleRow
+          checked={!!inService}
+          onChange={(next) => pick("inServiceAt59_5", next)}
+          label="Age 59½ In-Service Withdrawals"
+          sub="Participants aged 59½ or older may withdraw from any account while still employed."
+        />
+      ) : (
+        <div className="inline-alert warn">
+          No in-service withdrawals at age 59½. A {profile.label} plan restricts distributions to
+          separation from service, age 70½, an unforeseeable emergency, or death or disability.
+        </div>
+      )}
+
+      {/* Section 457(b) uses "unforeseeable emergency" — a stricter and legally
+          distinct standard from Section 401(k) hardship, not a synonym. */}
+      {profile.unforeseeableEmergency && (
+        <div style={{ marginTop: 10 }}>
+          <ToggleRow
+            checked={!!unforeseeableEmergencyElected}
+            onChange={(next) => pick("unforeseeableEmergencyElected", next)}
+            label="Unforeseeable Emergency Distributions"
+            sub="A severe financial hardship from an event beyond the participant's control, and only to the extent not relievable by insurance, liquidation of assets, or ceasing deferrals."
+          />
+        </div>
+      )}
+
+      {profile.hardshipAvailable && (
       <div style={{ marginTop: 10 }}>
         <ToggleRow
           checked={!!hardshipElected}
@@ -216,12 +297,74 @@ export function StepAdministration() {
                 desc="Broader events permitted, but requires case-by-case review."
               />
             </OptionGrid>
+            {/* SECURE 2.0 Section 312 — the participant may self-certify the need. */}
+            <div style={{ marginTop: 12 }}>
+              <label className="checkbox-row">
+                <input type="checkbox" {...register("hardshipSelfCertification")} />
+                <span>Permit employee self-certification of the hardship need (SECURE 2.0 Section 312).</span>
+              </label>
+            </div>
           </div>
         </RevealSection>
       </div>
+      )}
+
+      {/* ── SECURE 2.0 distribution events ──────────────────────
+          Optional withdrawal types a plan adopted today has to decide on.
+          None of these had a field before. */}
+      <div className="section-head">
+        Additional Distribution Events
+        <SectionTip heading="Additional Distribution Events" />
+      </div>
+      <div className="form-grid">
+        <FormField name="requiredBeginningAge" label="Required Beginning Age" required
+          error={errors.requiredBeginningAge}
+          hint="SECURE 2.0 Section 107 raised the required beginning date to age 73, rising to 75 in 2033.">
+          <select {...register("requiredBeginningAge", optionalEnumField)}>
+            <option value="">Select…</option>
+            <option value="73">Age 73</option>
+            <option value="75">Age 75 (from 2033)</option>
+          </select>
+        </FormField>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <div className="checkbox-grid">
+          {!profile.key.startsWith("457b") && (
+            <label className="checkbox-row">
+              <input type="checkbox" {...register("emergencyExpenseWithdrawal")} />
+              <span>Emergency personal expense withdrawal — $1,000/year (Section 115)</span>
+            </label>
+          )}
+          <label className="checkbox-row">
+            <input type="checkbox" {...register("domesticAbuseWithdrawal")} />
+            <span>Domestic abuse victim distribution (Section 314)</span>
+          </label>
+          <label className="checkbox-row">
+            <input type="checkbox" {...register("birthAdoptionWithdrawal")} />
+            <span>Qualified birth or adoption distribution (Section 113)</span>
+          </label>
+          <label className="checkbox-row">
+            <input type="checkbox" {...register("qualifiedDisasterWithdrawal")} />
+            <span>Qualified disaster recovery distribution</span>
+          </label>
+          <label className="checkbox-row">
+            <input type="checkbox" {...register("inServiceFromRollover")} />
+            <span>In-service withdrawal from rollover account at any age</span>
+          </label>
+          {profile.rothAvailable && (
+            <label className="checkbox-row">
+              <input type="checkbox" {...register("inPlanRothConversion")} />
+              <span>In-plan Roth conversion</span>
+            </label>
+          )}
+        </div>
+      </div>
 
       {/* ── Rollovers ─────────────────────────────────────── */}
-      <div className="section-head">Rollover Contributions</div>
+      <div className="section-head">
+        Rollover Contributions
+        <SectionTip heading="Rollover Contributions" />
+      </div>
       <ToggleRow
         checked={!!rolloversAccepted}
         onChange={(next) => {
@@ -229,7 +372,11 @@ export function StepAdministration() {
           setValue("rolloverSources", next ? "all" : "none");
         }}
         label="Accept Rollover Contributions"
-        sub="The plan will accept rollovers from qualified plans, IRAs, and 403(b)s."
+        sub={
+          profile.key === "457b_nongov"
+            ? "A non-governmental 457(b) may only accept transfers from another non-governmental 457(b) — not from an IRA, 401(k) or 403(b)."
+            : "The plan will accept rollovers from qualified plans, IRAs, and 403(b)s."
+        }
       />
       <RevealSection open={!!rolloversAccepted}>
         <div className="form-grid" style={{ paddingTop: 12 }}>
@@ -244,7 +391,10 @@ export function StepAdministration() {
       </RevealSection>
 
       {/* ── Plan expenses ─────────────────────────────────── */}
-      <div className="section-head">Plan Expenses</div>
+      <div className="section-head">
+        Plan Expenses
+        <SectionTip heading="Plan Expenses" />
+      </div>
       {errors.planExpensePayer && (
         <div className="inline-alert error" style={{ marginBottom: 12 }}>{errors.planExpensePayer.message}</div>
       )}
@@ -271,7 +421,10 @@ export function StepAdministration() {
       </OptionGrid>
 
       <RevealSection open={planExpensePayer === "employer"}>
-        <div className="section-head" style={{ marginTop: 20 }}>Employer Payment Method</div>
+        <div className="section-head" style={{ marginTop: 20 }}>
+        Employer Payment Method
+        <SectionTip heading="Employer Payment Method" />
+      </div>
         <div className="form-grid">
           <FormField name="employerPaymentMethod" label="Payment Method" required error={errors.employerPaymentMethod}>
             <select {...register("employerPaymentMethod", optionalEnumField)}>
@@ -316,7 +469,7 @@ export function StepAdministration() {
         </div>
       </RevealSection>
 
-      <FormErrorSummary errors={errors} />
+      <FormErrorSummary errors={errors} submitError={submitError} />
 
       <div className="panel-actions">
         <button type="button" className="btn-back" onClick={() => navigate(`/onboarding/${planId}/step/vesting`)}>

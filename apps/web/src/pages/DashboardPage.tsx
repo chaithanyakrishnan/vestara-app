@@ -38,7 +38,6 @@ const QDIA_LABEL: Record<string, string> = {
   managed: "Managed account",
 };
 
-const PAY_METHOD_LABEL: Record<string, string> = { ach: "ACH", check: "Check", wire: "Wire" };
 
 const SIG_LABEL: Record<string, string> = {
   pending: "Awaiting send",
@@ -263,6 +262,14 @@ export function DashboardPage() {
 
       {typeChips.length > 0 && (
         <div className="type-chips">
+          {/* "All" is explicit rather than implied by de-selecting the active
+              chip — clearing a filter should not require guessing. */}
+          <button
+            className={`type-chip${typeFilter === "all" ? " active" : ""}`}
+            onClick={() => setTypeFilter("all")}
+          >
+            All <span className="type-chip-count">{rows.length}</span>
+          </button>
           {typeChips.map(([type, count]) => (
             <button
               key={type}
@@ -362,7 +369,6 @@ export function DashboardPage() {
                 <SortHead label="Compliance" sortKey="compliance" />
                 <th>Investments</th>
                 <th>Payroll</th>
-                <th>Fee method</th>
                 <th>Signature</th>
                 <SortHead label="Submitted" sortKey="submitted" />
                 <th>Actions</th>
@@ -375,7 +381,15 @@ export function DashboardPage() {
                 const confirming = confirmingId === p.id;
                 const busy = deletePlan.isPending && confirming;
                 const pct = s.compliancePct ?? 0;
-                const open = () => navigate(`/onboarding/${p.id}/step/identity`);
+                // A submitted plan is a record, not a draft in progress —
+                // dropping the user onto an editable step (and then failing on
+                // Continue) is what made a signature-pending plan feel broken.
+                const open = () =>
+                  navigate(
+                    p.status === "draft"
+                      ? `/onboarding/${p.id}/step/identity`
+                      : `/onboarding/${p.id}/review`,
+                  );
                 return (
                   <tr key={p.id} onClick={open}>
                     <td>
@@ -439,16 +453,6 @@ export function DashboardPage() {
                       ) : (
                         <span className="cell-sub">Not set</span>
                       )}
-                    </td>
-                    <td>
-                      {s.planExpensePayer === "plan" && <div>Plan pays</div>}
-                      {s.planExpensePayer === "employer" && (
-                        <>
-                          <div>Employer pays</div>
-                          <div className="cell-sub">{PAY_METHOD_LABEL[s.employerPaymentMethod] ?? "Method TBD"}</div>
-                        </>
-                      )}
-                      {!s.planExpensePayer && <span className="cell-sub">Not set</span>}
                     </td>
                     <td>
                       {s.signatureStatus && s.signatureStatus !== "none" ? (

@@ -6,6 +6,7 @@ import {
   createPlanHandler,
   getPlanHandler,
   resetPlanDraftHandler,
+  setPlanStatusHandler,
   deletePlanHandler,
   updateStepHandler,
   replaceTrusteesHandler,
@@ -21,6 +22,8 @@ plansRouter.post("/", asyncHandler(createPlanHandler));
 plansRouter.get("/:planId", asyncHandler(getPlanHandler));
 // Clears every wizard answer — backs the "Enter Manually" intake choice.
 plansRouter.post("/:planId/reset-draft", asyncHandler(resetPlanDraftHandler));
+// Records the new-plan / transfer election made before the wizard starts.
+plansRouter.put("/:planId/plan-status", asyncHandler(setPlanStatusHandler));
 // Draft-only — plans.service.deletePlan rejects anything already submitted.
 plansRouter.delete("/:planId", asyncHandler(deletePlanHandler));
 plansRouter.put("/:planId/steps/:stepKey", asyncHandler(updateStepHandler));

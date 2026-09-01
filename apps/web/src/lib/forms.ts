@@ -1,4 +1,6 @@
-import type { FieldValues, UseFormSetValue } from "react-hook-form";
+import type { FieldValues, Resolver, UseFormSetValue } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import type { ZodTypeAny } from "zod";
 
 /**
  * Shared react-hook-form registration options and helpers.
@@ -53,4 +55,25 @@ export const optionalEnumField = {
 export function makeFieldSetter<T extends FieldValues>(setValue: UseFormSetValue<T>) {
   return <K extends keyof T & string>(name: K, value: T[K] | undefined) =>
     setValue(name as never, value as never, { shouldValidate: true, shouldDirty: true });
+}
+
+/**
+ * A zodResolver whose schema is chosen at validation time from the plan type.
+ *
+ * `useForm({ resolver })` captures its options on the first render, so swapping
+ * the schema when the user changes the plan-type dropdown cannot be done by
+ * rebuilding the resolver in render — the form would keep validating against
+ * whatever type it was created with. Resolving the schema inside the call
+ * instead means every validation pass uses the type currently in effect.
+ *
+ * `getPlanType` receives the form's current values, so the identity step can
+ * read the dropdown the user just changed, while later steps read it from the
+ * loaded plan.
+ */
+export function planTypeResolver<T extends FieldValues>(
+  build: (planType?: string) => ZodTypeAny,
+  getPlanType: (values: T) => string | undefined,
+): Resolver<T> {
+  return (values, context, options) =>
+    zodResolver(build(getPlanType(values as T)))(values, context, options);
 }

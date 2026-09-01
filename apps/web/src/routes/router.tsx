@@ -3,6 +3,7 @@ import { RequireAuth } from "../components/RequireAuth";
 import { LoginPage } from "../pages/LoginPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { ContactGatePage } from "../pages/ContactGatePage";
+import { PlanStatusPage } from "../pages/PlanStatusPage";
 import { IntakeMethodPage } from "../pages/IntakeMethodPage";
 import { UploadPage } from "../pages/UploadPage";
 import { ExtractionReviewPage } from "../pages/ExtractionReviewPage";
@@ -24,6 +25,7 @@ export function AppRouter() {
       <Route element={<RequireAuth />}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/onboarding/new" element={<ContactGatePage />} />
+        <Route path="/onboarding/:planId/plan-status" element={<PlanStatusPage />} />
         <Route path="/onboarding/:planId/intake" element={<IntakeMethodPage />} />
         <Route path="/onboarding/:planId/upload" element={<UploadPage />} />
         {/* Sits between upload and step 1 so the extraction can be validated

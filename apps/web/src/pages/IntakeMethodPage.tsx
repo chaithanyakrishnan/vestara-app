@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, ApiClientError } from "../lib/apiClient";
+import { usePlan } from "../hooks/usePlan";
+import { PartiesBanner } from "../components/PartiesBanner";
 
 /**
  * Intake method chooser, matching the prototype's card layout.
@@ -15,6 +17,7 @@ export function IntakeMethodPage() {
   const { planId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { data: plan } = usePlan(planId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,17 +42,21 @@ export function IntakeMethodPage() {
         type="button"
         className="btn-back"
         style={{ border: "none", padding: "0 0 24px", fontSize: 12, color: "var(--muted)" }}
-        onClick={() => navigate("/dashboard")}
+        onClick={() => navigate(`/onboarding/${planId}/plan-status`)}
       >
-        ← Back to dashboard
+        ← Back
       </button>
 
-      <div className="panel-eyebrow">HOW WOULD YOU LIKE TO START?</div>
-      <div className="panel-title">Choose your onboarding method</div>
+      <div className="flow-head">
+        <span className="flow-step-num">3</span>
+        <h1 className="flow-title">Choose your onboarding method</h1>
+      </div>
       <div className="panel-desc">
         If you have an existing adoption agreement, upload it and our AI will read every election and
         pre-fill the wizard. Or start fresh and answer each question step by step.
       </div>
+
+      <PartiesBanner plan={plan} />
 
       {error && <div className="inline-alert error" style={{ marginBottom: 16 }}>{error}</div>}
 

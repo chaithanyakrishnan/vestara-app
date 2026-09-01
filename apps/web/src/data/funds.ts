@@ -33,7 +33,7 @@ export const TD_FUNDS: Fund[] = [
 
 export const ALL_FUNDS: Fund[] = [...FUNDS, ...TD_FUNDS];
 
-/** ERISA §404(c) safe harbor requires at least three diversified core options. */
+/** ERISA Section 404(c) safe harbor requires at least three diversified core options. */
 export const MIN_CORE_FUNDS = 3;
 
 export const fundByTicker = (ticker: string) => ALL_FUNDS.find((f) => f.ticker === ticker);

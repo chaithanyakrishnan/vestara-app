@@ -1,11 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate, useParams } from "react-router-dom";
-import { IdentityStepSchema, type IdentityStepInput } from "@vestara/shared";
+import {
+  buildIdentitySchema,
+  planProfile,
+  PLAN_TYPES,
+  PLAN_PROFILES,
+  type IdentityStepInput,
+} from "@vestara/shared";
 import { usePlan } from "../../hooks/usePlan";
 import { useUpdateStep, isApiValidationError } from "../../hooks/useUpdateStep";
 import { FormField } from "../../components/FormField";
+import { SectionTip } from "../../components/InfoTip";
 import { FormErrorSummary } from "../../components/FormErrorSummary";
 import { PhoneInput } from "../../components/PhoneInput";
 import { EinInput, formatEin } from "../../components/EinInput";
@@ -16,9 +22,10 @@ import { AiSectionBanner } from "../../components/AiSectionBanner";
 import { AiProvenanceProvider } from "../../components/AiProvenance";
 import { formatPhoneNumber } from "../../lib/phone";
 import { formatDateInput } from "../../lib/date";
-import { numericField } from "../../lib/forms";
+import { numericField, optionalEnumField, planTypeResolver } from "../../lib/forms";
 import { formatCompanyAddress } from "../../data/companies";
 import { PAYROLL_PROVIDERS, PRIOR_RECORDKEEPERS } from "../../data/datalists";
+import { IrsLimitsStrip, PlanTypeDescription } from "../../components/PlanTypeInfo";
 
 const defaults: IdentityStepInput = {
   planType: "401k",
@@ -44,6 +51,7 @@ export function StepIdentity() {
   const navigate = useNavigate();
   const { data: plan } = usePlan(planId);
   const updateStep = useUpdateStep(planId, "identity");
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const {
     register,
@@ -53,7 +61,13 @@ export function StepIdentity() {
     setValue,
     setError,
     formState: { errors },
-  } = useForm<IdentityStepInput>({ resolver: zodResolver(IdentityStepSchema), defaultValues: defaults });
+  } = useForm<IdentityStepInput>({
+    // The plan type is a field on THIS form, so the schema has to be resolved
+    // from the submitted values rather than fixed when the form is created —
+    // changing the dropdown changes which fields are required.
+    resolver: planTypeResolver<IdentityStepInput>(buildIdentitySchema, (v) => v.planType),
+    defaultValues: defaults,
+  });
 
   // Hydrate from the server draft once it loads — this is what makes the
   // step resumable after a refresh or a return visit.
@@ -76,6 +90,8 @@ export function StepIdentity() {
     }
   }, [plan, reset]);
 
+  const planType = watch("planType");
+  const profile = planProfile(planType);
   const planStatus = watch("planStatus");
   const originalEffectiveDate = watch("originalEffectiveDate");
   const restatedEffectiveDate = watch("restatedEffectiveDate");
@@ -83,12 +99,20 @@ export function StepIdentity() {
   const isTransfer = planStatus === "transfer";
 
   async function onSubmit(data: IdentityStepInput) {
+    setSubmitError(null);
     try {
       await updateStep.mutateAsync(data);
       navigate(`/onboarding/${planId}/step/contributions`);
     } catch (err) {
       if (isApiValidationError(err)) {
         err.issues!.forEach((issue) => setError(issue.path as keyof IdentityStepInput, { message: issue.message }));
+      } else {
+        // A 422 from a cross-step business rule (see irsVestingFloor.ts)
+        // carries a message but no field issues. Without this branch the
+        // request failed and nothing at all appeared on screen.
+        setSubmitError(
+          err instanceof Error && err.message ? err.message : "Could not save this step. Please try again.",
+        );
       }
     }
   }
@@ -104,18 +128,97 @@ export function StepIdentity() {
 
       <AiSectionBanner plan={plan} stepKey="identity" />
 
-      <div className="section-head">Plan Type</div>
+      <div className="section-head">
+        Plan Type
+        <SectionTip heading="Plan Type" />
+      </div>
+
+      <IrsLimitsStrip />
+
       <div className="form-grid">
         <FormField name="planType" label="Plan Type" required colSpan2 error={errors.planType}>
           <select {...register("planType")}>
-            <option value="401k">401(k) — Private / for-profit employer</option>
-            <option value="403b">403(b) — Non-profit / public school / hospital</option>
-            <option value="457b_gov">457(b) Governmental</option>
-            <option value="457b_nongov">457(b) Non-governmental</option>
-            <option value="401a">401(a) — Defined contribution / profit sharing</option>
+            {PLAN_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {PLAN_PROFILES[t].optionLabel}
+              </option>
+            ))}
           </select>
         </FormField>
       </div>
+
+      {/* What the selected type commits the sponsor to. The wizard asks
+          different questions per type from here on; this is where the user is
+          told why. */}
+      <PlanTypeDescription planType={planType} />
+
+      {profile.key === "403b" && (
+        <div className="form-grid">
+          <FormField name="erisaStatus" label="ERISA Status" required error={errors.erisaStatus}
+            hint="A non-ERISA plan files no Form 5500 and cannot take employer contributions.">
+            <select {...register("erisaStatus", optionalEnumField)}>
+              <option value="">Select…</option>
+              <option value="erisa">Subject to ERISA</option>
+              <option value="non_erisa">Non-ERISA (governmental / church / limited involvement)</option>
+            </select>
+          </FormField>
+          <FormField name="organizationType" label="Organization Type" required error={errors.organizationType}>
+            <select {...register("organizationType", optionalEnumField)}>
+              <option value="">Select…</option>
+              <option value="501c3">501(c)(3) tax-exempt</option>
+              <option value="public_school">Public school / university</option>
+              <option value="hospital">Hospital / healthcare</option>
+              <option value="church">Church or church-related</option>
+              <option value="other">Other</option>
+            </select>
+          </FormField>
+        </div>
+      )}
+
+      {profile.key === "457b_gov" && (
+        <div className="form-grid">
+          <FormField name="governmentalEntityType" label="Governmental Entity Type" required
+            error={errors.governmentalEntityType}>
+            <select {...register("governmentalEntityType", optionalEnumField)}>
+              <option value="">Select…</option>
+              <option value="state">State</option>
+              <option value="county">County</option>
+              <option value="municipal">Municipal</option>
+              <option value="school_district">School district</option>
+              <option value="other">Other political subdivision</option>
+            </select>
+          </FormField>
+        </div>
+      )}
+
+      {profile.key === "457b_nongov" && (
+        <div className="form-grid">
+          <FormField name="topHatCertified" label="Top-Hat Certification" required colSpan2
+            error={errors.topHatCertified}
+            hint="Participation must be limited to a select group of management or highly compensated employees.">
+            <label className="checkbox-row">
+              <input type="checkbox" {...register("topHatCertified")} />
+              <span>
+                The employer confirms participation is limited to a select group of management or
+                highly compensated employees.
+              </span>
+            </label>
+          </FormField>
+        </div>
+      )}
+
+      {profile.key === "401a" && (
+        <div className="form-grid">
+          <FormField name="planSubtype" label="Plan Subtype" required error={errors.planSubtype}
+            hint="A money purchase plan commits the employer to a fixed annual contribution.">
+            <select {...register("planSubtype", optionalEnumField)}>
+              <option value="">Select…</option>
+              <option value="money_purchase">Money purchase pension</option>
+              <option value="profit_sharing">Profit sharing</option>
+            </select>
+          </FormField>
+        </div>
+      )}
 
       <div className="section-head">Employer</div>
       <div className="form-grid">
@@ -151,12 +254,16 @@ export function StepIdentity() {
         </FormField>
       </div>
 
-      <div className="section-head">Plan Legal Identity</div>
+      <div className="section-head">
+        Plan Legal Identity
+        <SectionTip heading="Plan Legal Identity" />
+      </div>
       <div className="form-grid">
         <FormField name="planName" label="Plan Name" required colSpan2 error={errors.planName} hint="Must be legally distinct from the employer name.">
           <input {...register("planName")} placeholder="e.g. 4 Bears Casino & Lodge 401(k) Plan" />
         </FormField>
-        <FormField name="planNumber" label="Plan Number" required error={errors.planNumber} hint="3-digit plan number. First plan = 001.">
+        <FormField name="planNumber" label="Plan Number" required={profile.files5500} error={errors.planNumber}
+          hint={profile.files5500 ? "3-digit plan number. First plan = 001." : "Optional — this plan type files no Form 5500."}>
           <input {...register("planNumber")} placeholder="001" maxLength={3} style={{ maxWidth: 120 }} />
         </FormField>
         <FormField name="planYearEnd" label="Plan Year End" required error={errors.planYearEnd}>
@@ -167,12 +274,17 @@ export function StepIdentity() {
             <option value="Mar 31">March 31</option>
           </select>
         </FormField>
-        <FormField name="trustName" label="Trust Name" colSpan2 error={errors.trustName} hint="Leave blank to auto-populate from Plan Name.">
-          <input {...register("trustName")} placeholder="e.g. 4 Bears Casino & Lodge 401(k) Plan Trust" />
-        </FormField>
+        {profile.fundingVehicle !== "unfunded" && profile.fundingVehicle !== "custodial_annuity" && (
+          <FormField name="trustName" label="Trust Name" colSpan2 error={errors.trustName} hint="Leave blank to auto-populate from Plan Name.">
+            <input {...register("trustName")} placeholder="e.g. 4 Bears Casino & Lodge 401(k) Plan Trust" />
+          </FormField>
+        )}
       </div>
 
-      <div className="section-head">Effective Dates</div>
+      <div className="section-head">
+        Effective Dates
+        <SectionTip heading="Effective Dates" />
+      </div>
       <div className="form-grid">
         <FormField name="planStatus" label="Plan Status" error={errors.planStatus}>
           <select {...register("planStatus")}>
@@ -246,7 +358,10 @@ export function StepIdentity() {
         </div>
       </RevealSection>
 
-      <div className="section-head">Payroll Integration</div>
+      <div className="section-head">
+        Payroll Integration
+        <SectionTip heading="Payroll Integration" />
+      </div>
       <div className="form-grid">
         <FormField name="payrollProvider" label="Payroll Provider" colSpan2 error={errors.payrollProvider}>
           <input {...register("payrollProvider")} list="payrollList" placeholder="e.g. ADP, Paychex, Gusto…" />
@@ -264,7 +379,7 @@ export function StepIdentity() {
         no manual roster upload needed.
       </div>
 
-      <FormErrorSummary errors={errors} />
+      <FormErrorSummary errors={errors} submitError={submitError} />
 
       <div className="panel-actions">
         <button type="button" className="btn-back" onClick={() => navigate(`/onboarding/${planId}/intake`)}>

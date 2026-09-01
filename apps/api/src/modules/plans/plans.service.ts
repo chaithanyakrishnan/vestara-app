@@ -6,11 +6,12 @@ import { ApiError } from "../../middleware/error.middleware";
 import {
   schemaForStep,
   STEP_KEYS,
-  TrusteesFundsStepSchema,
+  fieldLabel,
+  stepLabel,
   type ContactGateInput,
   type VestingStepInput,
 } from "@vestara/shared";
-import { validateCustomVestingSchedule } from "./irsVestingFloor";
+import { validateVestingAgainstPlan } from "./irsVestingFloor";
 import { createSignatureRequests, sortSigners } from "../esign/esign.service";
 
 function generateRefNumber(): string {
@@ -42,19 +43,22 @@ function toPlanSummary(plan: {
   const identity = byKey.get("identity") ?? {};
   const administration = byKey.get("administration") ?? {};
   const funds = byKey.get("trustees_funds") ?? {};
+  // Compliance is scored against the schema for THIS plan's type — a 401(a)
+  // scored against the 401(k) shape would read as permanently incomplete.
+  const planType = identity.planType as string | undefined;
 
   let completedSteps = 0;
   for (const key of STEP_KEYS) {
     const data = byKey.get(key);
     if (data === undefined) continue;
     // trustees_funds keeps its trustees in a normalized table, so the stored
-    // JSON alone never satisfies the schema's `min(1)` — merge them back in,
-    // exactly as validateReadyToSubmit does.
+    // JSON alone never satisfies the schema's trustee requirement — merge them
+    // back in, exactly as validateReadyToSubmit does.
     const candidate =
       key === "trustees_funds"
         ? { ...data, trustees: plan.trustees.map((t) => ({ name: t.name, type: t.type })) }
         : data;
-    if (schemaForStep(key)!.safeParse(candidate).success) completedSteps++;
+    if (schemaForStep(key, planType)!.safeParse(candidate).success) completedSteps++;
   }
 
   // Signature roll-up. Plans submitted under the old typed-signature flow have
@@ -210,12 +214,27 @@ export async function updateStep(planId: string, stepKey: string, data: unknown)
   if (!STEP_KEYS.includes(stepKey as any)) {
     throw new ApiError(400, `Unknown step key: ${stepKey}`);
   }
-  const schema = schemaForStep(stepKey)!;
+  // Which schema applies depends on the plan type. When the identity step is
+  // itself being written, the incoming payload is the authority — the user may
+  // be changing the plan type right now. Otherwise read it from the stored
+  // identity step.
+  const planType =
+    stepKey === "identity"
+      ? (data as any)?.planType
+      : await getPlanType(planId);
+
+  const schema = schemaForStep(stepKey, planType)!;
   const parsed = schema.parse(data); // throws ZodError -> handled by errorHandler
 
   // Business rules that outlive a pure shape check live next to the write path,
-  // not in the schema — see irsVestingFloor.ts for why.
-  if (stepKey === "vesting") validateCustomVestingSchedule(parsed as VestingStepInput);
+  // not in the schema — see irsVestingFloor.ts for why. Vesting needs the
+  // contribution elections too, so it reads them from the draft.
+  if (stepKey === "vesting") {
+    const contributions = await prisma.planStepData.findUnique({
+      where: { planId_stepKey: { planId, stepKey: "contributions" } },
+    });
+    validateVestingAgainstPlan(parsed as VestingStepInput, planType, contributions?.data as any);
+  }
 
   await prisma.planStepData.upsert({
     where: { planId_stepKey: { planId, stepKey } },
@@ -233,6 +252,35 @@ export async function updateStep(planId: string, stepKey: string, data: unknown)
 /** Only ever increases — this is what keeps later rail steps unlocked after the
  * user jumps back to edit an earlier one. Exported so AI extraction can unlock
  * the steps it successfully pre-filled (see extraction.service.ts). */
+/**
+ * Records ONLY the new-plan / transfer election, before the identity step is
+ * filled in.
+ *
+ * This is a deliberate exception to "updateStep is the single write path": the
+ * election is made on its own screen ahead of the wizard, and the identity
+ * schema requires an EIN, plan name and plan year end that the user has not
+ * reached yet, so a full `updateStep` would reject it. It merges one key into
+ * the identity step rather than introducing a second home for the value —
+ * `identity.planStatus` stays the single source of truth. (`applyExtractionToPlan`
+ * writes partial sections the same way, for the same reason.)
+ *
+ * It does NOT advance currentStep/maxStepReached: choosing new-vs-transfer is
+ * not completing the identity step.
+ */
+export async function setPlanStatus(planId: string, planStatus: "new" | "transfer") {
+  const existing = await prisma.planStepData.findUnique({
+    where: { planId_stepKey: { planId, stepKey: "identity" } },
+  });
+  const merged = { ...((existing?.data as object) ?? {}), planStatus };
+
+  await prisma.planStepData.upsert({
+    where: { planId_stepKey: { planId, stepKey: "identity" } },
+    create: { planId, stepKey: "identity", data: merged as any },
+    update: { data: merged as any },
+  });
+  return { planStatus };
+}
+
 export async function bumpMaxStepReached(planId: string, stepIndex: number) {
   const plan = await prisma.plan.findUniqueOrThrow({ where: { id: planId } });
   if (stepIndex > plan.maxStepReached) {
@@ -253,6 +301,15 @@ export async function bumpMaxStepReached(planId: string, stepIndex: number) {
  * document was read, which stays true even after the answers are discarded.
  */
 export async function resetPlanDraft(planId: string) {
+  // The new-plan / transfer election is made BEFORE the intake choice, on its
+  // own screen, so "start fresh" must not silently discard it — the user would
+  // land in the wizard having answered that question and find it blank.
+  // Everything else the wizard collects is cleared.
+  const identity = await prisma.planStepData.findUnique({
+    where: { planId_stepKey: { planId, stepKey: "identity" } },
+  });
+  const planStatus = (identity?.data as any)?.planStatus;
+
   await prisma.$transaction([
     prisma.planStepData.deleteMany({ where: { planId } }),
     prisma.fieldProvenance.deleteMany({ where: { planId } }),
@@ -262,6 +319,10 @@ export async function resetPlanDraft(planId: string) {
       data: { currentStep: 0, maxStepReached: 0, status: "draft", signatureName: null, submittedAt: null },
     }),
   ]);
+
+  if (planStatus === "new" || planStatus === "transfer") {
+    await setPlanStatus(planId, planStatus);
+  }
   return getPlan(planId);
 }
 
@@ -317,9 +378,35 @@ export async function replaceTrustees(planId: string, trustees: Array<{ name: st
  * (min 3 funds, at least 1 trustee, etc.) is satisfied before allowing
  * submission — this is the check the original HTML prototype never did.
  */
+/**
+ * The plan type drives which schema every other step is validated against, so
+ * it is read from the stored identity step rather than passed around. A draft
+ * with no identity step yet falls back to the 401(k) shape.
+ */
+/**
+ * Turns a step's Zod issues into a sentence a plan sponsor can act on.
+ *
+ * The old form was `trustees_funds (namedFiduciary, fidelityBondAmount)` —
+ * an error message written in variable names. Labels come from the shared
+ * FIELD_LABELS so the wording matches what the field is called on screen.
+ */
+function describeIncompleteStep(stepKey: string, issues: Array<{ path: (string | number)[] }>): string {
+  const fields = [...new Set(issues.map((i) => String(i.path[0] ?? "")).filter(Boolean))];
+  if (fields.length === 0) return stepLabel(stepKey);
+  return `${stepLabel(stepKey)} — ${fields.map(fieldLabel).join(", ")}`;
+}
+
+export async function getPlanType(planId: string): Promise<string | undefined> {
+  const row = await prisma.planStepData.findUnique({
+    where: { planId_stepKey: { planId, stepKey: "identity" } },
+  });
+  return (row?.data as any)?.planType;
+}
+
 export async function validateReadyToSubmit(planId: string) {
   const plan = await getPlan(planId);
   const byKey = new Map(plan.stepData.map((s) => [s.stepKey, s.data]));
+  const planType = (byKey.get("identity") as any)?.planType as string | undefined;
   const missing: string[] = [];
 
   // Presence is not enough. AI extraction can now write a PARTIAL section when
@@ -331,36 +418,33 @@ export async function validateReadyToSubmit(planId: string) {
     if (key === "trustees_funds") continue; // validated separately below (needs trustees table)
     const data = byKey.get(key);
     if (data === undefined) {
-      missing.push(key);
+      missing.push(stepLabel(key));
       continue;
     }
-    const result = schemaForStep(key)!.safeParse(data);
-    if (!result.success) {
-      const fields = [...new Set(result.error.issues.map((i) => String(i.path[0] ?? "")).filter(Boolean))];
-      missing.push(fields.length ? `${key} (${fields.join(", ")})` : key);
-    }
+    const result = schemaForStep(key, planType)!.safeParse(data);
+    if (!result.success) missing.push(describeIncompleteStep(key, result.error.issues));
   }
 
   const trusteesFundsData = byKey.get("trustees_funds") as any;
   if (!trusteesFundsData) {
-    missing.push("trustees_funds");
+    missing.push(stepLabel("trustees_funds"));
   } else {
     // safeParse, not parse: a raw ZodError escapes as a 400 with an `issues`
     // array, which the review screen renders as "Submission failed" with no
     // detail. Folding it into `missing` keeps every incomplete step reported
     // the same way, in one 422 the user can act on.
-    const result = TrusteesFundsStepSchema.safeParse({
+    const result = schemaForStep("trustees_funds", planType)!.safeParse({
       ...trusteesFundsData,
       trustees: plan.trustees.map((t) => ({ id: t.id, name: t.name, type: t.type })),
     });
-    if (!result.success) {
-      const fields = [...new Set(result.error.issues.map((i) => String(i.path[0] ?? "")).filter(Boolean))];
-      missing.push(fields.length ? `trustees_funds (${fields.join(", ")})` : "trustees_funds");
-    }
+    if (!result.success) missing.push(describeIncompleteStep("trustees_funds", result.error.issues));
   }
 
   if (missing.length > 0) {
-    throw new ApiError(422, `Cannot submit — incomplete steps: ${missing.join(", ")}`);
+    throw new ApiError(
+      422,
+      `This plan can't be submitted yet. Please complete: ${missing.join("; ")}.`,
+    );
   }
 }
 
@@ -375,10 +459,18 @@ export async function validateReadyToSubmit(planId: string) {
  */
 export async function submitPlan(planId: string) {
   await validateReadyToSubmit(planId);
-  const plan = await prisma.plan.update({
-    where: { id: planId },
-    data: { status: "submitted", submittedAt: new Date() },
-  });
+  const current = await prisma.plan.findUniqueOrThrow({ where: { id: planId } });
+
+  // Re-submitting an already-submitted plan must not rewrite submittedAt: that
+  // timestamp is the record of when the elections were made final.
+  const plan =
+    current.status === "submitted"
+      ? current
+      : await prisma.plan.update({
+          where: { id: planId },
+          data: { status: "submitted", submittedAt: new Date() },
+        });
+
   await createSignatureRequests(planId);
   return plan;
 }

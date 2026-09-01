@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { usePlan } from "../../hooks/usePlan";
+import { usePlanType } from "../../hooks/usePlanTypeForm";
 import { api, ApiClientError } from "../../lib/apiClient";
 import { STEP_REGISTRY } from "@vestara/shared";
 import { buildReviewSection, contactRows, missingFieldLabels } from "../../lib/reviewFormat";
@@ -9,6 +10,8 @@ export function Review() {
   const { planId } = useParams();
   const navigate = useNavigate();
   const { data: plan, refetch } = usePlan(planId);
+  const planType = usePlanType(plan);
+  const alreadySubmitted = plan?.status && plan.status !== "draft";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,7 +50,7 @@ export function Review() {
       step,
       section,
       data,
-      missing: section ? missingFieldLabels(step.key, data) : [],
+      missing: section ? missingFieldLabels(step.key, data, planType) : [],
     };
   });
 
@@ -168,7 +171,7 @@ export function Review() {
         <h4>Electronic signature</h4>
         <p className="esign-panel-desc">
           On submit, each party below receives an e-signature request for the Adoption Agreement. The plan is
-          executed under ERISA §402 when every party has signed.
+          executed under ERISA Section 402 when every party has signed.
         </p>
         {signers.length > 0 ? (
           <ul className="signer-list">
@@ -198,20 +201,34 @@ export function Review() {
         )}
       </div>
 
+      {alreadySubmitted && (
+        <div className="inline-alert" style={{ marginTop: 16 }}>
+          These elections were submitted on{" "}
+          {plan.submittedAt ? new Date(plan.submittedAt).toLocaleDateString() : "an earlier date"} and are
+          now final. Signature progress is shown above and on the dashboard.
+        </div>
+      )}
+
       {error && <div className="inline-alert error" style={{ marginTop: 16 }}>{error}</div>}
 
       <div className="panel-actions">
-        <button className="btn-back" onClick={() => navigate(`/onboarding/${planId}/step/trustees_funds`)}>
-          ← Back
+        <button className="btn-back" onClick={() => navigate(alreadySubmitted ? "/dashboard" : `/onboarding/${planId}/step/trustees_funds`)}>
+          ← {alreadySubmitted ? "Back to dashboard" : "Back"}
         </button>
-        <button
-          className="btn-primary"
-          disabled={!ready || submitting}
-          onClick={handleSubmit}
-          title={ready ? undefined : "Every step must have valid data before you can submit"}
-        >
-          {submitting ? "Submitting…" : "Submit & request e-signatures"}
-        </button>
+        {alreadySubmitted ? (
+          <button className="btn-primary" onClick={() => navigate(`/onboarding/${planId}/success`)}>
+            View signature status
+          </button>
+        ) : (
+          <button
+            className="btn-primary"
+            disabled={!ready || submitting}
+            onClick={handleSubmit}
+            title={ready ? undefined : "Every step must have valid data before you can submit"}
+          >
+            {submitting ? "Submitting…" : "Submit & request e-signatures"}
+          </button>
+        )}
       </div>
     </div>
   );
