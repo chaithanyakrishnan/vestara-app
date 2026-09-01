@@ -1,0 +1,22 @@
+/* Ported from the original Vestara-v4.html prototype design tokens —
+   deliberately kept as-is; the visual design was already good. */
+:root {
+  --navy: #0b2418;
+  --navy2: #eef2ea;
+  --navy3: #ffffff;
+  --teal: #0b5c42;
+  --teal2: #0e6b4d;
+  --green: #4bcd3e;
+  --green2: #3aaa2f;
+  --green-ink: #1b5e20;
+  --amber: #7a5a12;
+  --cream: #16241c;
+  --cream2: #45524b;
+  --muted: #6e7a72;
+  --error: #c0392b;
+  --success: #4bcd3e;
+
+  --rail-w: 260px;
+  --step-r: 10px;
+  --trans: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}

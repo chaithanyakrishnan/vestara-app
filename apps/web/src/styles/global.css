@@ -1,0 +1,236 @@
+@import "./tokens.css";
+@import "./controls.css";
+@import "./calendar.css";
+@import "./dashboard.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--navy2);
+  color: var(--cream);
+  font-family: "Inter", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--teal2);
+  color: #fff;
+  border: none;
+  border-radius: var(--step-r);
+  padding: 11px 20px;
+  font-weight: 600;
+  font-size: 13px;
+  transition: background var(--trans), opacity var(--trans);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--teal);
+}
+.btn-primary:disabled {
+  cursor: not-allowed;
+}
+
+.btn-back {
+  background: none;
+  border: 1px solid rgba(20, 36, 28, 0.14);
+  color: var(--cream2);
+  border-radius: var(--step-r);
+  padding: 11px 18px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.panel-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--teal2);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.panel-title {
+  font-family: "Fraunces", serif;
+  font-size: 26px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.panel-desc {
+  color: var(--cream2);
+  max-width: 640px;
+  margin-bottom: 24px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+/* Label and control styling matched to the prototype: uppercase tracked labels
+   and tinted (not white) inputs. */
+.field label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cream2);
+}
+.field .req {
+  color: var(--teal2);
+  margin-left: 2px;
+}
+.field input,
+.field select,
+.field textarea {
+  background: rgba(20, 36, 28, 0.05);
+  border: 1px solid rgba(20, 36, 28, 0.1);
+  border-radius: 8px;
+  padding: 11px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--cream);
+  width: 100%;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color var(--trans), background var(--trans), box-shadow var(--trans);
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--teal2);
+  background: rgba(11, 92, 66, 0.06);
+  box-shadow: 0 0 0 3px rgba(11, 92, 66, 0.12);
+}
+.field input::placeholder {
+  color: var(--muted);
+}
+/* Native select arrows vary per platform — draw our own so every dropdown in
+   the app gets the same chevron. */
+.field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236E7A72' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 34px;
+  cursor: pointer;
+}
+.field-error {
+  font-size: 11px;
+  color: var(--error);
+}
+.field-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 20px;
+  margin-bottom: 20px;
+}
+.form-grid .col-span-2 {
+  grid-column: span 2;
+}
+
+.section-head {
+  margin: 24px 0 12px;
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inline-alert {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.inline-alert.info {
+  background: rgba(11, 92, 66, 0.08);
+  color: var(--teal2);
+}
+.inline-alert.warn {
+  background: rgba(169, 129, 46, 0.12);
+  color: #7a5a12;
+}
+.inline-alert.error {
+  background: rgba(192, 57, 43, 0.1);
+  color: var(--error);
+}
+
+.panel-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(20, 36, 28, 0.06);
+}
+
+/* Inline "jump to the step that needs work" link inside review/alert copy. */
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Ghost action inside a table row (dashboard "Delete"). Muted until hover so a
+   destructive control doesn't compete with the row's own click target. */
+.row-action {
+  background: none;
+  border: 1px solid rgba(20, 36, 28, 0.14);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  transition: color var(--trans), border-color var(--trans), background var(--trans);
+}
+.row-action:hover:not(:disabled) {
+  color: var(--error);
+  border-color: rgba(192, 57, 43, 0.4);
+  background: rgba(192, 57, 43, 0.06);
+}
+.row-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.row-action.confirm {
+  color: #fff;
+  background: var(--error);
+  border-color: var(--error);
+}
+.row-action.confirm:hover:not(:disabled) {
+  color: #fff;
+  background: #a5342c;
+  border-color: #a5342c;
+}

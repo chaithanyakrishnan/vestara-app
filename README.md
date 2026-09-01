@@ -27,8 +27,8 @@ AI document-extraction module with a real audit trail.
 
 ## Prerequisites
 
-- Node.js 20+
-- pnpm 9+ (`npm i -g pnpm`)
+- Node.js 20+ (ships with npm 10+, which supports workspaces — no separate
+  package manager to install)
 
 No database server to install — this uses SQLite by default (a plain file
 at `apps/api/prisma/dev.db`). See "Using Postgres instead" below if you
@@ -38,17 +38,17 @@ want closer production parity later.
 
 ```bash
 # 1. Install dependencies
-pnpm install
+npm install
 
 # 2. Configure the API (defaults work as-is — SQLite, no server needed)
 cp apps/api/.env.example apps/api/.env
 
 # 3. Run migrations + seed demo users (creates apps/api/prisma/dev.db)
-pnpm db:migrate
-pnpm db:seed
+npm run db:migrate
+npm run db:seed
 
 # 4. Start both apps
-pnpm dev
+npm run dev
 ```
 
 - API: http://localhost:4000 (health check: `GET /health`)
@@ -56,6 +56,29 @@ pnpm dev
 
 Demo logins (seeded): `murthy@altimetrik1.com` / `chai@lpl.com`, both
 password `demo1234` (sponsor and advisor respectively).
+
+## Troubleshooting
+
+**`prisma:migrate` fails with a generic "command failed" error.** The real
+error is printed by Prisma *above* the `npm error` lines — scroll up in your
+terminal. The two most common causes, both now handled automatically:
+
+- **Missing/stale `apps/api/.env`.** `npm install` now auto-creates it from
+  `.env.example` if it's missing (see `apps/api/scripts/ensure-env.js`, wired
+  into `postinstall`). If you extracted an earlier version of this project
+  into the same folder (e.g. a prior Postgres/Docker-based version) and
+  already had an `.env` there, it won't be overwritten — check that its
+  `DATABASE_URL` still says `file:./dev.db` and not a leftover
+  `postgresql://...` connection string pointing at a database you don't
+  have running.
+- **Wrong SQLite path.** For SQLite, `DATABASE_URL` resolves relative to
+  `prisma/schema.prisma` itself, not the package root. It must be
+  `file:./dev.db` (resolves to `apps/api/prisma/dev.db`) — an earlier
+  version of this README/`.env.example` had this wrong.
+
+If neither applies, delete `apps/api/prisma/migrations/` (if present) and
+`apps/api/prisma/dev.db`, then re-run `npm run db:migrate` and paste the
+full output, not just the final `npm error` lines.
 
 ## Using Postgres instead
 
@@ -66,7 +89,7 @@ install, or a hosted instance):
    `provider = "postgresql"` under `datasource db`.
 2. Set `DATABASE_URL` in `apps/api/.env` to your Postgres connection string.
 3. Delete `apps/api/prisma/migrations` (SQLite and Postgres migrations
-   aren't interchangeable) and re-run `pnpm db:migrate`.
+   aren't interchangeable) and re-run `npm run db:migrate`.
 
 Every model already uses portable types (`String`, `Int`, `DateTime`,
 `Json`) — the only thing SQLite cost us is native database-level enums,

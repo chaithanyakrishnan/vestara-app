@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls .cursor/rules 2>/dev/null; cat .cursorrules 2>/dev/null; cat .github/copilot-instructions.md 2>/dev/null; ls .codex 2>/dev/null; ls .gemini 2>/dev/null; cat GEMINI.md 2>/dev/null | head -20; ls ~/.codex/config.toml ~/.gemini/settings.json 2>/dev/null; ls CLAUDE.md 2>/dev/null)",
+      "Read(//Users/chaithanya/.codex/**)",
+      "Bash(npm run *)",
+      "Bash(/Users/chaithanya/Documents/vestara-app/node_modules/.bin/prisma validate *)",
+      "Bash(timeout 180 npx --yes prisma@6 validate --schema prisma/schema.prisma)",
+      "Bash(npx --yes prisma@6 validate --schema prisma/schema.prisma)",
+      "Bash(npm install *)",
+      "Bash(node -p \"require\\('./apps/api/node_modules/@anthropic-ai/sdk/package.json'\\).version\")",
+      "Bash(node -p \"require\\('./node_modules/@anthropic-ai/sdk/package.json'\\).version\")",
+      "Bash(npx tsx *)",
+      "Bash(npm exec *)",
+      "Bash(cp /private/tmp/claude-502/-Users-chaithanya-Documents-vestara-app/002c09be-98bf-4bbc-95b7-6ab5bf008af1/scratchpad/jsoncheck.ts ./jsoncheck.tmp.ts)",
+      "Bash(echo \"started pid $!\")",
+      "Bash(curl -s -m 10 'http://localhost:5173/src/components/PhoneInput.tsx')",
+      "Bash(kill 60749)",
+      "Bash(pkill -f 'vite')",
+      "Bash(curl -s -m 2 -o /dev/null -w 'web now: %{http_code}\\\\n' http://localhost:5173/)",
+      "Bash(curl -s -m 2 http://localhost:4000/health)",
+      "Bash(curl -s -m 10 -X POST http://localhost:4000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"murthy@altimetrik1.com\",\"password\":\"demo1234\"}')",
+      "Bash(pkill -f 'tsx watch src/server.ts')",
+      "Bash(pkill -f 'vestara')",
+      "Bash(lsof -ti:4000)",
+      "Bash(xargs kill -9)",
+      "Bash(npx tsc *)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(npm view *)",
+      "Bash(curl -s -m 3 http://localhost:4000/health)",
+      "Bash(grep -o 'ANTHROPIC_API_KEY=.\\\\{0,8\\\\}' apps/api/.env)",
+      "Bash(node -e ' *)",
+      "Bash(python3 -)"
+    ]
+  }
+}

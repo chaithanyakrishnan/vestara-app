@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// SQLite by default: zero services to install, just a file on disk at
+// apps/api/prisma/dev.db. Swap provider to "postgresql" and point
+// DATABASE_URL at a real Postgres instance if/when you want closer
+// production parity — everything else in this schema is portable between
+// the two engines EXCEPT native enums, which SQLite doesn't support in
+// Prisma. Enum-like fields below are plain String, enforced the same way
+// they always were: by the Zod schemas in @vestara/shared on every write.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  role         String   // "sponsor" | "advisor" — see RoleSchema in @vestara/shared
+  createdAt    DateTime @default(now())
+
+  plansAsSponsor Plan[] @relation("SponsorPlans")
+  plansAsAdvisor Plan[] @relation("AdvisorPlans")
+}
+
+/// One row per onboarding case. Holds top-level status/progress; the actual
+/// wizard answers live in PlanStepData (generic, schema-validated per step)
+/// plus the normalized tables below for genuinely relational data.
+model Plan {
+  id              String   @id @default(uuid())
+  refNumber       String   @unique
+  status          String   @default("draft") // "draft" | "review" | "submitted"
+  currentStep     Int      @default(0)
+  maxStepReached  Int      @default(0)
+
+  sponsorUserId String
+  sponsorUser   User   @relation("SponsorPlans", fields: [sponsorUserId], references: [id])
+
+  advisorUserId String?
+  advisorUser   User?   @relation("AdvisorPlans", fields: [advisorUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  submittedAt DateTime?
+  signatureName String?
+
+  contacts   PlanContact[]
+  signatures PlanSignature[]
+  stepData   PlanStepData[]
+  trustees   PlanTrustee[]
+  documents  Document[]
+  provenance FieldProvenance[]
+}
+
+/// One e-signature request per party on the plan.
+///
+/// Created at submit time from the plan's contacts, so the roster is whoever
+/// was captured on the gate — sponsor, advisor, and the TPA when one is
+/// engaged. `envelopeId` stays null until an envelope actually exists at the
+/// provider; see esign.service.ts, which is the only file that knows about
+/// DocuSign.
+model PlanSignature {
+  id         String    @id @default(uuid())
+  planId     String
+  plan       Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  role       String // "sponsor" | "advisor" | "tpa" — mirrors PlanContact.type
+  name       String
+  email      String
+  status     String    @default("pending") // "pending" | "sent" | "signed" | "declined"
+  envelopeId String?
+  sentAt     DateTime?
+  signedAt   DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([planId, role])
+}
+
+model PlanContact {
+  id      String @id @default(uuid())
+  planId  String
+  plan    Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  type    String // "advisor" | "sponsor" | "tpa"
+  // Nullable because a TPA is identified by its FIRM (-> org), and the
+  // individual contact there is often unknown at gate time. Advisor and
+  // sponsor rows still require both — enforced by ContactGateSchema on the
+  // write path, where the rest of this app's business rules live.
+  name    String?
+  email   String?
+  phone   String?
+  org     String?      // firm (advisor / TPA) or employer org (sponsor)
+  title   String?
+  fiduciaryRole String? // advisor only
+
+  @@unique([planId, type])
+}
+
+/// Generic per-step payload store. `stepKey` matches STEP_REGISTRY in
+/// @vestara/shared; `data` is validated against that step's Zod schema
+/// before every write (see plans.service.ts). Normalizing every wizard step
+/// into its own table bought little here versus the complexity, since
+/// steps evolve independently and are always read/written whole.
+model PlanStepData {
+  id        String   @id @default(uuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  stepKey   String
+  data      Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([planId, stepKey])
+}
+
+model PlanTrustee {
+  id     String @id @default(uuid())
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  name   String
+  type   String @default("Individual")
+}
+
+model Document {
+  id         String   @id @default(uuid())
+  planId     String
+  plan       Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  filename   String
+  storageKey String
+  mimeType   String
+  sizeBytes  Int
+  uploadedAt DateTime @default(now())
+
+  extractions AiExtraction[]
+}
+
+/// Audit trail for every AI parsing run against an uploaded document.
+model AiExtraction {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  model      String
+  rawOutput  Json
+  createdAt  DateTime @default(now())
+
+  provenance FieldProvenance[]
+}
+
+/// Field-level attribution: was this election AI-suggested or manually
+/// entered, and has the human confirmed it? This is what makes an
+/// AI-prefilled election auditable at e-signature time.
+model FieldProvenance {
+  id            String    @id @default(uuid())
+  planId        String
+  plan          Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  fieldPath     String    // e.g. "identity" (section-level) or "identity.employerEin"
+  source        String    // "ai" | "manual"
+  extractionId  String?
+  extraction    AiExtraction? @relation(fields: [extractionId], references: [id])
+  confirmedAt   DateTime?
+
+  /// Rollup 0..1 for the whole section — the mean of fieldConfidences.
+  confidence       Float?
+  /// Per-field confidence map, e.g. { "employerEin": 0.98, "trustName": 0.55 }.
+  /// Kept as a Json blob on the section row rather than one row per field: the
+  /// forms read the whole section's map at once, and a row per input would
+  /// multiply provenance rows ~15x for data that is only ever read together.
+  fieldConfidences Json?
+
+  @@unique([planId, fieldPath])
+}
